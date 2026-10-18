@@ -1,15 +1,34 @@
-# The repo's canonical text form is LF, enforced at checkout too: no smudge
-# boundary between working tree and repo, so byte-level gates (verify-*
-# comparisons, blob hashing, coverage offsets) see one form on every host.
-# Windows command scripts require CRLF in the working tree for cmd.exe; the
-# override after the default keeps the in-repo form normalized as text.
+# Enforce LF line endings for all text files
 * text=auto eol=lf
-*.cmd text eol=crlf
 
-*.pdf binary
 
-# The persistence catalog is the readable projection of these generated schemas.
-docs/persistence-schema.json linguist-generated=true
-docs/persistence-changes/*.schema.json linguist-generated=true
-docs/persistence-changes/releases/*.schema.json linguist-generated=true
-docs/persistence-changes/historical-formats/*.schema.json linguist-generated=true
+
+# Hide most localization files by default in GitHub PR diffs. Show English as the source
+# language and German so reviewers can catch untranslated copy-pasted English strings.
+**/i18n/*.ts linguist-generated=true
+**/i18n/**/*.ts linguist-generated=true
+**/i18n/en.ts linguist-generated=false
+**/i18n/en*.ts linguist-generated=false
+**/i18n/**/en.ts linguist-generated=false
+**/i18n/**/en*.ts linguist-generated=false
+**/i18n/de.ts linguist-generated=false
+**/i18n/de*.ts linguist-generated=false
+**/i18n/**/de.ts linguist-generated=false
+**/i18n/**/de*.ts linguist-generated=false
+**/i18n/package-nls-en.ts linguist-generated=false
+**/i18n/package-nls-de.ts linguist-generated=false
+**/i18n/index.ts linguist-generated=false
+**/i18n/**/index.ts linguist-generated=false
+**/i18n/parity.test.ts linguist-generated=false
+**/i18n/**/parity.test.ts linguist-generated=false
+packages/kilo-i18n/src/*.ts linguist-generated=true
+packages/kilo-i18n/src/en.ts linguist-generated=false
+packages/kilo-i18n/src/de.ts linguist-generated=false
+
+# Auto-generated CLI reference docs
+packages/kilo-docs/markdoc/partials/cli-commands-table.md linguist-generated=true
+packages/kilo-docs/pages/code-with-ai/platforms/cli-reference.md linguist-generated=true
+
+# Upstream generated migration artifacts
+packages/core/migration/**/snapshot.json linguist-generated
+packages/core/src/database/migration.gen.ts linguist-generated
