@@ -35,6 +35,7 @@ import { ProjectProvider, useProject } from "./context/project"
 import { EditorContextProvider } from "./context/editor"
 import { useEvent } from "./context/event"
 import { SDKProvider, useSDK } from "./context/sdk"
+import { DirectoryProvider } from "./kilocode/directory-context" // kilocode_change
 import { StartupLoading } from "./component/startup-loading"
 import { SyncProvider, useSync } from "./context/sync"
 import { DataProvider } from "./context/data"
@@ -146,6 +147,7 @@ const appBindingCommands = [
 ] as const
 
 export type TuiInput = {
+  onDirectory?: (directory: string) => void // kilocode_change - local project switch after clean shutdown
   url: string
   args: Args
   config: TuiConfig.Resolved
@@ -262,6 +264,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
 
         await render(() => {
           return (
+            <DirectoryProvider change={input.onDirectory}>{/* kilocode_change */}
             <ExitProvider exit={close /* kilocode_change - reuse the externally registered renderer exit */}>
               <EpilogueProvider set={(value) => (exit.epilogue = value)}>
                 <ErrorBoundary fallback={(error, reset) => <ErrorComponent error={error} reset={reset} mode={mode} />}>
@@ -364,6 +367,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
                 </ErrorBoundary>
               </EpilogueProvider>
             </ExitProvider>
+            </DirectoryProvider> /* kilocode_change */
           )
         }, renderer)
       })

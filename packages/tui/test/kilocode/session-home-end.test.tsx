@@ -2,6 +2,7 @@ import { ScrollBoxRenderable, TextareaRenderable, type Renderable } from "@opent
 import { createDefaultOpenTuiKeymap } from "@opentui/keymap/opentui"
 import { createSlot, createSolidSlotRegistry, testRender, useRenderer, useTerminalDimensions } from "@opentui/solid"
 import { expect, test } from "bun:test"
+import { mkdir } from "node:fs/promises"
 import { onCleanup, Show } from "solid-js"
 import { NudgeProvider } from "../../../opencode/src/kilocode/cli/cmd/tui/context/nudge"
 import { TuiConfigProvider } from "../../src/config"
@@ -17,6 +18,7 @@ import { LocationProvider } from "../../src/context/location"
 import { PermissionProvider } from "../../src/context/permission"
 import { ProjectProvider } from "../../src/context/project"
 import { PromptRefProvider, usePromptRef } from "../../src/context/prompt"
+import { DirectoryProvider } from "../../src/kilocode/directory-context"
 import { RouteProvider } from "../../src/context/route"
 import { TuiTerminalEnvironmentProvider } from "../../src/context/runtime"
 import { SDKProvider } from "../../src/context/sdk"
@@ -29,7 +31,7 @@ import { PromptHistoryProvider } from "../../src/prompt/history"
 import { PromptStashProvider } from "../../src/prompt/stash"
 import { Session } from "../../src/routes/session"
 import { DialogProvider } from "../../src/ui/dialog"
-import { ToastProvider } from "../../src/ui/toast"
+import { ToastProvider, useToast } from "../../src/ui/toast"
 import { wait } from "../cli/cmd/tui/sync-fixture"
 import { tmpdir } from "../fixture/fixture"
 import { TestTuiContexts } from "../fixture/tui-environment"
@@ -45,13 +47,19 @@ function scrollbox(node: Renderable): ScrollBoxRenderable | undefined {
   return undefined
 }
 
-async function mount(root: string, width = 80) {
+async function mount(
+  root: string,
+  width = 80,
+  navigation?: { directory: string; change: (dir: string) => void; exit: () => void },
+) {
   await Bun.write(`${root}/kv.json`, JSON.stringify({ animations_enabled: false, sidebar: "hide", vim_enabled: false }))
+  const cwd = navigation?.directory ?? directory
+  const requests: string[] = []
   const session = {
     id: "ses_home_end",
     slug: "home-end",
     projectID: "proj_test",
-    directory,
+    directory: cwd,
     title: "Home and End navigation",
     version: "test",
     time: { created: 1, updated: 1 },
@@ -79,6 +87,9 @@ async function mount(root: string, width = 80) {
     }
   })
   const calls = createFetch((url) => {
+    requests.push(url.pathname)
+    if (url.pathname === "/path") return json({ home: root, state: root, config: root, worktree: cwd, directory: cwd })
+    if (url.pathname === `/session/${session.id}/abort`) return json(true)
     if (url.pathname === "/session") return json([session])
     if (url.pathname === `/session/${session.id}`) return json(session)
     if (url.pathname === `/session/${session.id}/message`) return json(messages)
@@ -87,7 +98,11 @@ async function mount(root: string, width = 80) {
     return undefined
   })
   const config = createTuiResolvedConfig()
-  const refs: { prompt?: ReturnType<typeof usePromptRef>; sync?: ReturnType<typeof useSync> } = {}
+  const refs: {
+    prompt?: ReturnType<typeof usePromptRef>
+    sync?: ReturnType<typeof useSync>
+    toast?: ReturnType<typeof useToast>
+  } = {}
 
   function Ready() {
     const sync = useSync()
@@ -121,6 +136,7 @@ async function mount(root: string, width = 80) {
 
   function Content() {
     refs.prompt = usePromptRef()
+    refs.toast = useToast()
     const dimensions = useTerminalDimensions()
     return (
       <box width={dimensions().width} height={dimensions().height} flexDirection="column">
@@ -140,50 +156,48 @@ async function mount(root: string, width = 80) {
     }
     onCleanup(registerOpencodeKeymap(keymap, renderer, config))
     return (
-      <TestTuiContexts directory={root} paths={{ home: root, state: root, worktree: root }}>
-        <TuiTerminalEnvironmentProvider value={{ platform: process.platform }}>
-          <ClipboardProvider value={{}}>
-            <OpencodeKeymapProvider keymap={keymap}>
-              <ArgsProvider>
-                <KVProvider>
-                  <ToastProvider>
-                    <RouteProvider initialRoute={{ type: "session", sessionID: session.id }}>
-                      <TuiConfigProvider config={config}>
-                        <PluginRuntimeProvider value={runtime}>
-                          <SDKProvider
-                            url="http://test"
-                            directory={directory}
-                            fetch={calls.fetch}
-                            events={eventSource()}
-                          >
-                            <PermissionProvider>
-                              <ProjectProvider>
-                                <ExitProvider
-                                  exit={() => {
-                                    throw new Error("Unexpected exit")
-                                  }}
-                                >
-                                  <EpilogueProvider set={() => {}}>
-                                    <SyncProvider>
-                                      <DataProvider>
-                                        <Ready />
-                                      </DataProvider>
-                                    </SyncProvider>
-                                  </EpilogueProvider>
-                                </ExitProvider>
-                              </ProjectProvider>
-                            </PermissionProvider>
-                          </SDKProvider>
-                        </PluginRuntimeProvider>
-                      </TuiConfigProvider>
-                    </RouteProvider>
-                  </ToastProvider>
-                </KVProvider>
-              </ArgsProvider>
-            </OpencodeKeymapProvider>
-          </ClipboardProvider>
-        </TuiTerminalEnvironmentProvider>
-      </TestTuiContexts>
+      <DirectoryProvider change={navigation?.change}>
+        <TestTuiContexts directory={root} paths={{ home: root, state: root, worktree: root }}>
+          <TuiTerminalEnvironmentProvider value={{ platform: process.platform }}>
+            <ClipboardProvider value={{}}>
+              <OpencodeKeymapProvider keymap={keymap}>
+                <ArgsProvider>
+                  <KVProvider>
+                    <ToastProvider>
+                      <RouteProvider initialRoute={{ type: "session", sessionID: session.id }}>
+                        <TuiConfigProvider config={config}>
+                          <PluginRuntimeProvider value={runtime}>
+                            <SDKProvider url="http://test" directory={cwd} fetch={calls.fetch} events={eventSource()}>
+                              <PermissionProvider>
+                                <ProjectProvider>
+                                  <ExitProvider
+                                    exit={() => {
+                                      if (navigation) return navigation.exit()
+                                      throw new Error("Unexpected exit")
+                                    }}
+                                  >
+                                    <EpilogueProvider set={() => {}}>
+                                      <SyncProvider>
+                                        <DataProvider>
+                                          <Ready />
+                                        </DataProvider>
+                                      </SyncProvider>
+                                    </EpilogueProvider>
+                                  </ExitProvider>
+                                </ProjectProvider>
+                              </PermissionProvider>
+                            </SDKProvider>
+                          </PluginRuntimeProvider>
+                        </TuiConfigProvider>
+                      </RouteProvider>
+                    </ToastProvider>
+                  </KVProvider>
+                </ArgsProvider>
+              </OpencodeKeymapProvider>
+            </ClipboardProvider>
+          </TuiTerminalEnvironmentProvider>
+        </TestTuiContexts>
+      </DirectoryProvider>
     )
   }
 
@@ -204,6 +218,8 @@ async function mount(root: string, width = 80) {
       input,
       prompt,
       scroll,
+      requests,
+      toast: refs.toast!,
       async press(sequence: string) {
         app.renderer.stdin.emit("data", Buffer.from(sequence))
         await app.flush()
@@ -298,4 +314,57 @@ test("Ctrl+G and Ctrl+Alt+G navigate the transcript while the prompt is focused"
   expect(scene.scroll.scrollTop).toBe(scene.scroll.scrollHeight - scene.scroll.viewport.height)
   expect(scene.input.focused).toBe(true)
   expect(scene.input.plainText).toBe("abcdef")
+})
+
+test("/cd completes a quoted directory with Tab, then stops the old chat before switching", async () => {
+  await using tmp = await tmpdir()
+  await mkdir(`${tmp.path}/space project`)
+  const events: string[] = []
+  using scene = await mount(tmp.path, 120, {
+    directory: tmp.path,
+    change: (dir) => events.push(dir),
+    exit: () => events.push("exit"),
+  })
+  scene.prompt.set({ input: "/cd spa", parts: [] })
+  await wait(() => scene.app.captureCharFrame().includes("space project/"))
+  await scene.press("\t")
+  await wait(() => scene.input.plainText === '/cd "space project/"')
+  expect(events).toEqual([])
+  await scene.press("\r")
+  await wait(() => events.length === 2)
+  expect(events).toEqual([`${tmp.path}/space project`, "exit"])
+  expect(scene.requests.filter((url) => url.endsWith("/abort"))).toEqual(["/session/ses_home_end/abort"])
+  expect(scene.requests.some((url) => url.endsWith("/prompt_async"))).toBe(false)
+})
+
+test("/cd invalid paths and completion dismissal preserve the existing chat", async () => {
+  await using tmp = await tmpdir()
+  const events: string[] = []
+  using scene = await mount(tmp.path, 120, {
+    directory: tmp.path,
+    change: (dir) => events.push(dir),
+    exit: () => events.push("exit"),
+  })
+  scene.prompt.set({ input: "/cd does-not-exist", parts: [] })
+  await scene.app.flush()
+  await scene.press("\x1b")
+  // Let the terminal distinguish Escape from an Alt+Enter sequence.
+  await Bun.sleep(80)
+  expect(scene.input.plainText).toBe("/cd does-not-exist")
+  await scene.press("\r")
+  await wait(() => scene.toast.currentToast?.title === "Could not change directory").catch((err) => {
+    throw new Error(
+      JSON.stringify({
+        text: scene.input.plainText,
+        focused: scene.input.focused,
+        toast: scene.toast.currentToast,
+        events,
+        frame: scene.app.captureCharFrame(),
+      }),
+      { cause: err },
+    )
+  })
+  expect(events).toEqual([])
+  expect(scene.requests.some((url) => url.endsWith("/abort"))).toBe(false)
+  expect(scene.prompt.current.input).toBe("/cd does-not-exist")
 })

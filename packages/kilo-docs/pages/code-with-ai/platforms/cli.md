@@ -94,6 +94,7 @@ The `kilo console` command and its browser interface are deprecated and will be 
 |---|---|---|
 | `/sessions` | `/resume`, `/continue` | Switch session |
 | `/new` | `/clear` | New session |
+| `/cd [directory]` | - | Switch local project and start a fresh chat |
 | `/share` | - | Share session |
 | `/unshare` | - | Unshare session |
 | `/rename` | - | Rename session |
@@ -111,6 +112,10 @@ The `kilo console` command and its browser interface are deprecated and will be 
 | `/diff` | - | Open the diff viewer |
 | `/timestamps` | `/toggle-timestamps` | Show/hide timestamps |
 | `/thinking` | `/toggle-thinking` | Show/hide thinking blocks |
+
+Use `/cd ../another-project`, `/cd ~/projects/app`, or `/cd "/path/with spaces"` to switch projects inside the local TUI. Typing a path shows directory-only suggestions with fuzzy matching. Use Up/Down to select a suggestion, Tab to complete it and continue browsing, Enter to switch, or Escape to dismiss suggestions without changing the path. Bare `/cd` goes to your home directory.
+
+A successful switch stops the current chat's active response, preserves its saved history, and reloads the TUI in the target directory with a fresh chat and that project's configuration. Invalid or inaccessible paths leave the current chat unchanged. Unlike `/move`, `/cd` does not carry the conversation or copy edits to the destination. It is unavailable in remote workspaces and `kilo attach`.
 
 #### Agent & Model Commands
 

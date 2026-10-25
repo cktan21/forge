@@ -19,6 +19,7 @@ import { SplitBorder } from "../../ui/border"
 import { useTerminalDimensions } from "@opentui/solid"
 import { slashDisplay } from "@/kilocode/cli/cmd/command-display" // kilocode_change
 import { KiloSteer } from "../../kilocode/steer" // kilocode_change - subagent views have no slash commands
+import { useDirectoryCompletion } from "../../kilocode/directory-completion" // kilocode_change
 import { createSessionPart, sessionMentionText } from "../../kilocode/session-mentions" // kilocode_change
 import { DialogSessionMention } from "../../kilocode/dialog-session-mention" // kilocode_change
 import { useDialog } from "../../ui/dialog" // kilocode_change
@@ -67,7 +68,7 @@ export type AutocompleteRef = {
   onCursorChange: () => void
   dismiss: () => void
   // kilocode_change end
-  visible: false | "@" | "/"
+  visible: false | "@" | "/" | "cd" // kilocode_change
 }
 
 export type AutocompleteOption = {
@@ -82,6 +83,7 @@ export type AutocompleteOption = {
 }
 
 export function Autocomplete(props: {
+  submit?: () => void // kilocode_change - Enter executes /cd; Tab completes its path
   value: string
   sessionID?: string
   setPrompt: (input: (prompt: PromptInfo) => void) => void
@@ -106,6 +108,16 @@ export function Autocomplete(props: {
   const tuiConfig = useTuiConfig()
   const paths = useTuiPaths()
   const location = useLocation()
+  // kilocode_change start - directory-only local completion, separate from file mentions
+  const directory = useDirectoryCompletion({
+    value: () => props.value,
+    cwd: () => location()?.directory || sync.session.get(props.sessionID ?? "")?.directory || project.instance.directory() || sdk.directory || paths.cwd,
+    home: paths.home,
+    disabled: () => !!project.workspace.current() || KiloSteer.steering(sync.session.get(props.sessionID ?? "")),
+    input: props.input,
+    setPrompt: props.setPrompt,
+  })
+  // kilocode_change end
   const [store, setStore] = createStore({
     index: 0,
     selected: 0,
@@ -289,7 +301,7 @@ export function Autocomplete(props: {
   const references = createMemo(() => data.location.reference.list() ?? [])
 
   const referenceMatch = createMemo(() => {
-    if (!store.visible || store.visible === "/") return
+    if (store.visible !== "@") return // kilocode_change
     const { baseQuery } = extractLineRange(search())
     const slash = baseQuery.indexOf("/")
     const alias = slash === -1 ? baseQuery : baseQuery.slice(0, slash)
@@ -325,7 +337,7 @@ export function Autocomplete(props: {
   const [files] = createResource(
     () => ({ query: search(), location: location() }),
     async (input) => {
-      if (!store.visible || store.visible === "/") return []
+      if (store.visible !== "@") return [] // kilocode_change
       if (referenceMatch()) return []
       const { lineRange, baseQuery } = extractLineRange(input.query ?? "")
 
@@ -394,7 +406,7 @@ export function Autocomplete(props: {
   // kilocode_change end
 
   const mcpResources = createMemo(() => {
-    if (!store.visible || store.visible === "/") return []
+    if (store.visible !== "@") return [] // kilocode_change
 
     const options: AutocompleteOption[] = []
     const width = props.anchor().width - 4
@@ -475,7 +487,7 @@ export function Autocomplete(props: {
   )
 
   const commands = createMemo((): AutocompleteOption[] => {
-    const results: AutocompleteOption[] = [...slashes()]
+    const results: AutocompleteOption[] = [...slashes(), ...directory.commands()] // kilocode_change
 
     for (const serverCommand of sync.data.command) {
       // kilocode_change start - preserve suffixes like :skill when inserting selected slash commands
@@ -505,6 +517,7 @@ export function Autocomplete(props: {
   })
 
   const options = createMemo((prev: AutocompleteOption[] | undefined) => {
+    if (store.visible === "cd") return directory.options() // kilocode_change
     const filesValue = files()
     const referenceMatchValue = referenceMatch()
     const agentsValue = agents()
@@ -584,6 +597,7 @@ export function Autocomplete(props: {
   function select() {
     const selected = options()[store.selected]
     if (!selected) return
+    if (store.visible === "cd") { selected.onSelect?.(); return } // kilocode_change
     hide()
     selected.onSelect?.()
   }
@@ -591,6 +605,7 @@ export function Autocomplete(props: {
   function expandDirectory() {
     const selected = options()[store.selected]
     if (!selected) return
+    if (store.visible === "cd") { selected.onSelect?.(); return } // kilocode_change
 
     const input = props.input()
     const currentCursorOffset = input.cursorOffset
@@ -645,6 +660,7 @@ export function Autocomplete(props: {
         title: "Select autocomplete item",
         category: "Autocomplete",
         run() {
+          if (store.visible === "cd") { dismiss(); props.submit?.(); return } // kilocode_change
           select()
         },
       },
@@ -731,6 +747,13 @@ export function Autocomplete(props: {
       },
       // kilocode_change end
       onInput(value) {
+        // kilocode_change start - paths may contain spaces and quoted segments
+        if (directory.active() && props.input().cursorOffset === Bun.stringWidth(value)) {
+          setStore({ visible: "cd", index: 3 })
+          return
+        }
+        if (store.visible === "cd") { dismiss(); return }
+        // kilocode_change end
         if (store.visible) {
           if (
             // Typed text before the trigger
@@ -768,6 +791,12 @@ export function Autocomplete(props: {
         if (!store.visible) return
         const cursor = props.input().cursorOffset
         const value = props.input().plainText
+        // kilocode_change start
+        if (store.visible === "cd") {
+          if (!directory.active() || cursor !== Bun.stringWidth(value)) dismiss()
+          return
+        }
+        // kilocode_change end
         if (
           cursor <= store.index ||
           props.input().getTextRange(store.index, cursor).match(/\s/) ||

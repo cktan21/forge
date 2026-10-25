@@ -269,6 +269,9 @@ export const TuiThreadCommand = cmd({
     const { KiloTuiThreadDaemon } = await import("@/kilocode/cli/cmd/tui/thread")
     const { preload } = await import("@/kilocode/cli/cmd/tui")
     const { resolveTuiDirectory } = await import("@/kilocode/cli/cmd/tui-worktree")
+    const { directorySwitch } = await import("@/kilocode/cli/cmd/tui/directory")
+    const directory = directorySwitch(args)
+    const launch = (input: StartInput, client?: RpcClient) => start({ ...input, onDirectory: directory.change }, client)
     // kilocode_change end
     const unguard = win32InstallCtrlCGuard()
     const shutdown = {
@@ -315,7 +318,7 @@ export const TuiThreadCommand = cmd({
       }
       const cwd = Filesystem.resolve(process.cwd())
       // kilocode_change start - default TUI sessions attach to the daemon unless explicitly disabled
-      if (await KiloTuiThreadDaemon.attach({ args, cwd, input: () => input(args.prompt), start })) return
+      if (await KiloTuiThreadDaemon.attach({ args, cwd, input: () => input(args.prompt), start: launch })) return
       // kilocode_change end
       const auth = KiloTuiThreadDaemon.workerAuth() // kilocode_change - protect TUI-owned HTTP routes from unauthenticated local callers
       // kilocode_change start - propagate stable run metadata and an explicit worker role
@@ -492,7 +495,7 @@ export const TuiThreadCommand = cmd({
         }
 
         // kilocode_change start
-        await start(
+        await launch(
           {
             // kilocode_change - shared lazy loader also supports daemon attach
             url: transport.url,
@@ -528,6 +531,7 @@ export const TuiThreadCommand = cmd({
       } catch (err) {
         console.error("Failed to remove Windows Ctrl+C guard", err)
       }
+      directory.finish() // kilocode_change - relaunch only after normal TUI/worker cleanup
     }
     if (shutdown.exiting) return
     process.exit(0)

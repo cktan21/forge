@@ -26,6 +26,7 @@ import { useProject } from "../../context/project"
 import { useSync } from "../../context/sync"
 import { useNudge } from "@/kilocode/cli/cmd/tui/context/nudge" // kilocode_change
 import { useEvent } from "../../context/event"
+import { useDirectoryPrompt } from "../../kilocode/directory-prompt" // kilocode_change
 import { editorSelectionKey, useEditorContext, type EditorSelection } from "../../context/editor"
 import { normalizePromptContent, openEditor } from "../../editor"
 import { useExit } from "../../context/exit"
@@ -172,6 +173,7 @@ export function Prompt(props: PromptProps) {
   const editor = useEditorContext()
   const route = useRoute()
   const project = useProject()
+  const directory = useDirectoryPrompt(() => props.sessionID) // kilocode_change
   const sync = useSync()
   const tuiConfig = useTuiConfig()
   const dialog = useDialog()
@@ -1063,6 +1065,7 @@ export function Prompt(props: PromptProps) {
     if (workspace.creating() || move.creating()) return false
     if (auto()?.visible) return false
     if (!store.prompt.input) return false
+    if (!steer() && store.mode === "normal" && await directory.submit(store.prompt.input)) return true // kilocode_change
     // kilocode_change start - in-memory cost alert command
     if (!steer() && costAlert.handle(store.prompt.input.trim())) return true
     // kilocode_change end
@@ -1906,6 +1909,7 @@ export function Prompt(props: PromptProps) {
         </box>
       </box>
       <Autocomplete
+        submit={() => { void submit() }} // kilocode_change
         sessionID={props.sessionID}
         ref={(r) => {
           setAuto(() => r)
