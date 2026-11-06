@@ -9,6 +9,7 @@ type Schema = {
   minimum?: number
   maximum?: number
   properties?: Record<string, Schema>
+  required?: string[]
   type?: string
 }
 
@@ -85,6 +86,18 @@ export function matchLegacyKiloOpenApi(input: Record<string, unknown>) {
   const name = update?.$ref?.replace("#/components/schemas/", "")
   const fields = name ? spec.components?.schemas?.[name]?.properties : update?.properties
   if (fields?.sessionID) fields.sessionID = nullable(fields.sessionID)
+
+  const stream = spec.paths?.["/forge/enhance/stream"]?.post?.responses?.["200"]?.content?.["text/event-stream"]
+  const proposal = spec.paths?.["/forge/enhance"]?.post?.responses?.["200"]?.content?.["application/json"]?.schema
+  const activity = (proposal?.$ref ? spec.components?.schemas?.[proposal.$ref.replace("#/components/schemas/", "")] : proposal)?.properties?.activity
+  const failure = spec.components?.schemas?.ForgeError?.properties?.failure
+  if (stream && proposal) stream.schema = {
+    anyOf: [
+      { type: "object", required: ["type", "stage"], properties: { type: { const: "progress", type: "string" }, stage: { type: "string" }, summary: { type: "string" }, preview: { type: "string" }, ...(activity ? { activity } : {}) } },
+      { type: "object", required: ["type", "proposal"], properties: { type: { const: "result", type: "string" }, proposal } },
+      { type: "object", required: ["type", "message"], properties: { type: { const: "error", type: "string" }, message: { type: "string" }, ...(failure ? { failure } : {}) } },
+    ],
+  }
 
   const fim = spec.paths?.["/kilo/fim"]?.post?.responses
   if (!fim) return

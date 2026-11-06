@@ -24,6 +24,12 @@ export const ProfileCommand = lazy({
   load: async () => (await import("@/kilocode/cli/cmd/profile")).ProfileCommand,
 })
 
+export const ForgeUsageCommand = lazy({
+  command: "forge-usage <url>",
+  describe: "export recorded collection embedding attempts from an existing backend (no model calls)",
+  load: async () => (await import("@/kilocode/cli/cmd/forge-usage")).ForgeUsageCommand,
+})
+
 export const RemoteCommand = lazy({
   command: "remote",
   describe: "enable remote connection for real-time session relay",

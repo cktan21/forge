@@ -2,7 +2,8 @@ import z from "zod"
 import path from "path"
 import { realpathSync } from "node:fs"
 import { Effect, Schema } from "effect"
-import { type IndexingTelemetryEvent, type VectorStoreSearchResult } from "@kilocode/kilo-indexing/engine"
+import { type IndexingTelemetryEvent, type VectorStoreSearchResult, type SearchScope } from "@kilocode/kilo-indexing/engine"
+import { wait } from "@kilocode/kilo-indexing/search-wait"
 import { toIndexingConfigInput, type IndexingConfig } from "@kilocode/kilo-indexing/config"
 import { hasIndexingPlugin } from "@kilocode/kilo-indexing/detect"
 import { IndexingStatus, disabledIndexingStatus } from "@kilocode/kilo-indexing/status"
@@ -27,6 +28,7 @@ import { IndexingWorker } from "./indexing-worker-client"
 import { LanceDBRuntime } from "./lancedb"
 import { indexingWithKiloDefault, resolveKiloIndexingAuth, type KiloIndexingAuth } from "./indexing-auth"
 import { primaryWorktree } from "./primary-worktree"
+import { register as observe } from "./indexing-observation"
 
 const log = Log.create({ service: "kilocode-indexing" })
 const auth = makeRuntime(Auth.Service, Auth.defaultLayer)
@@ -573,6 +575,13 @@ export namespace KiloIndexing {
     return entry.current().state !== "Disabled"
   }
 
+  /** Inspect cached state only; unlike current(), this never boots indexing. */
+  export function peek(dir: string) {
+    const hit = cache.get(dir)
+    if (!hit || hit.disposed) return undefined
+    return { initialized: !!hit.entry?.initialized, state: hit.entry?.current().state ?? "In Progress" }
+  }
+
   export async function available(): Promise<boolean> {
     const entry = await hit().ready
     entry.scope(WorkspaceContext.workspaceID)
@@ -580,10 +589,12 @@ export namespace KiloIndexing {
     return entry.current().state !== "Disabled"
   }
 
-  export async function search(query: string, directoryPrefix?: string): Promise<VectorStoreSearchResult[]> {
-    const entry = await hit().promise
+  export async function search(query: string, directoryPrefix?: string, scope?: SearchScope, signal?: AbortSignal): Promise<VectorStoreSearchResult[]> {
+    const entry = await wait(() => hit().promise, signal)
     entry.scope(WorkspaceContext.workspaceID)
     if (!entry.initialized || entry.current().state === "Disabled" || !entry.engine) return []
-    return entry.engine.search(query, directoryPrefix)
+    return entry.engine.search(query, directoryPrefix, scope, signal)
   }
 }
+
+observe(KiloIndexing.peek)

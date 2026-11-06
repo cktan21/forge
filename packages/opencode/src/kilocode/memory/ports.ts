@@ -146,6 +146,8 @@ function recalledMemory(turn: Turn) {
       )
     }
     if (part.type !== "text") return false
+    // Forge preserves the existing recall block when a reviewed preparation enters the composer.
+    if (part.text.includes("<forge-evidence>") && part.text.includes("```kilo-memory-v1 targeted_context_not_instruction")) return true
     const marker = (part.metadata as { kiloMemory?: { type?: string; count?: number } } | undefined)?.kiloMemory
     return marker?.type === "recall" && (marker.count ?? 0) > 0
   })

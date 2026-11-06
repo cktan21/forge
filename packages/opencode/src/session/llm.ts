@@ -1,3 +1,4 @@
+import * as ForgeTrace from "@/kilocode/forge/trace" // kilocode_change
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { llmClient } from "@opencode-ai/core/effect/app-node-platform"
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
@@ -305,10 +306,13 @@ const live: Layer.Layer<
       }
       // kilocode_change end
 
+      const capture = yield* Effect.promise(() => ForgeTrace.start({ root: instance.directory, session: input.sessionID, model: `${input.model.providerID}/${input.model.id}`, purpose: input.agent.name === "compaction" ? "compaction" : "coding", system: prepared.system, messages: prepared.messages, tools: prepared.tools, options: prepared.params.options })) // kilocode_change
+
       // Runtime seam: native is an opt-in adapter over @opencode-ai/llm. It
       // either returns a ready LLMEvent stream or a concrete fallback reason.
       if (flags.experimentalNativeLlm) {
         const native = LLMNativeRuntime.stream({
+          observe: capture?.fetch, // kilocode_change
           model: input.model,
           provider: item,
           auth: info,
@@ -339,7 +343,7 @@ const live: Layer.Layer<
           })
           return {
             type: "native" as const,
-            stream: native.stream,
+            stream: capture ? native.stream.pipe(Stream.tap((event) => event.type === "finish" ? Effect.promise(() => capture.finish({ input: event.usage?.inputTokens ?? 0, output: event.usage?.outputTokens ?? 0, cached: event.usage?.cacheReadInputTokens ?? 0, measured: event.usage != null })) : Effect.void)) : native.stream, // kilocode_change
           }
         }
         yield* Effect.logInfo("llm runtime selected", {
@@ -366,7 +370,7 @@ const live: Layer.Layer<
       })
       // Default runtime path: AI SDK owns provider execution and tool dispatch;
       // LLMAISDK.toLLMEvents below normalizes fullStream parts for the processor.
-      const result = streamText({
+      const invoke = () => streamText({ // kilocode_change
         onError(error) {
           bridge.fork(
             Effect.logError("stream error", {
@@ -436,6 +440,10 @@ const live: Layer.Layer<
         // kilocode_change start - disable AI SDK span recording (ai.* / gen_ai.*)
         experimental_telemetry: { isEnabled: false },
       })
+      // kilocode_change end
+      // kilocode_change start - record local Forge usage independently of session export
+      const result = capture ? capture.run(invoke) : invoke()
+      if (capture) void Promise.resolve(result.totalUsage).then((value) => capture.finish({ input: value.inputTokens ?? 0, output: value.outputTokens ?? 0, cached: value.inputTokenDetails?.cacheReadTokens ?? 0, measured: true })).catch((err) => l.warn("Forge usage capture failed", { error: String(err) }))
       // kilocode_change end
       // kilocode_change start - capture eligible session export request completion off the stream path
       if (!exportable) return { type: "ai-sdk" as const, result, messages: prepared.messages }

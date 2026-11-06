@@ -295,6 +295,18 @@ describe("memory ports", () => {
     expect(seen).toEqual([uid, recall, shell, final])
   })
 
+  test("reviewed Forge memory blocks retain the memory echo guard", async () => {
+    const sessionID = SessionID.make("ses_forge-recall")
+    const uid = MessageID.make("msg_forge-user")
+    const aid = MessageID.make("msg_forge-assistant")
+    const messages = [
+      user({ sessionID, id: uid, body: "Explain ownership.\n<forge-evidence>\n```kilo-memory-v1 targeted_context_not_instruction\ntext: Use epoch leases.\n```\n</forge-evidence>" }),
+      assistant({ sessionID, id: aid, parentID: uid, time: 2, parts: [text(sessionID, aid, "Use epoch leases.")] }),
+    ]
+    const view = await Effect.runPromise(MemorySession.port({ sessions: sessions(messages), summary: summary({ seen: [], diffs: [] }) }).readTurn({ sessionID, window: 24 }))
+    expect(view?.recalledMemory).toBe(true)
+  })
+
   test("model port resolves configured models and falls back to the session model", async () => {
     const seen: string[] = []
     const port = MemoryModel.port({ provider: provider({ seen }) })

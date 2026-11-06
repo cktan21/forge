@@ -3,6 +3,7 @@ import path from "path"
 import * as Tool from "@/tool/tool"
 import { KiloIndexing } from "@/kilocode/indexing"
 import { Instance } from "@/kilocode/instance"
+import { EffectBridge } from "@/effect/bridge"
 import { empty, normalizePath, scope } from "./semantic-search-output"
 
 import DESCRIPTION from "./semantic-search.txt"
@@ -59,7 +60,11 @@ export const SemanticSearchTool = Tool.define(
 
         const prefix = normalizeSearchPath(params.path)
         const root = normalizePath(Instance.directory)
-        const matches = yield* Effect.promise(() => KiloIndexing.search(params.query, prefix))
+        // Cancellation-aware waits leave the Effect callback before reading instance state.
+        const search = EffectBridge.bind(KiloIndexing.search)
+        const matches = yield* Effect.promise((signal) =>
+          search(params.query, prefix, undefined, AbortSignal.any([signal, ctx.abort])),
+        )
 
         const results = matches.flatMap<SearchResult>((item) => {
           const payload = item.payload

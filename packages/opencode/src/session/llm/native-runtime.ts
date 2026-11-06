@@ -27,6 +27,7 @@ export type StreamResult =
   | { readonly type: "unsupported"; readonly reason: string }
 
 type StreamInput = {
+  readonly observe?: (fetch: typeof globalThis.fetch) => typeof globalThis.fetch // kilocode_change - host-owned transport observation
   readonly model: Provider.Model
   readonly provider: Provider.Info
   readonly auth: Auth.Info | undefined
@@ -140,9 +141,10 @@ export function stream(input: StreamInput): StreamResult {
     ),
   )
 
+  const observed = input.observe ? input.observe(fetch ?? globalThis.fetch) : fetch // kilocode_change
   return {
     ...current,
-    stream: fetch ? stream.pipe(Stream.provideService(FetchHttpClient.Fetch, fetch)) : stream,
+    stream: observed ? stream.pipe(Stream.provideService(FetchHttpClient.Fetch, observed)) : stream, // kilocode_change
   }
 }
 

@@ -2,6 +2,7 @@ import type {
   IndexingConfigInput,
   IndexingTelemetryEvent,
   VectorStoreSearchResult,
+  SearchScope,
 } from "@kilocode/kilo-indexing/engine"
 import type { IndexingStatus } from "@kilocode/kilo-indexing/status"
 import type { IndexingWarning } from "./indexing-warning"
@@ -21,9 +22,12 @@ export type Request =
       id: number
       key: string
       method: "search"
-      input: { query: string; directoryPrefix?: string }
+      input: { query: string; directoryPrefix?: string; scope?: SearchScope }
     }
   | { type: "request"; id: number; key: string; method: "dispose"; input: undefined }
+
+export type Cancel = { type: "cancel"; id: number; key: string }
+export type Incoming = Request | Cancel
 
 export type Result =
   | { type: "result"; id: number; method: "init"; ok: true; value: IndexingStatus }

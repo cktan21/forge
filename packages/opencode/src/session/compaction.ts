@@ -1,3 +1,4 @@
+import * as ForgeTrace from "@/kilocode/forge/trace" // kilocode_change
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder" // kilocode_change
 import { SessionV1 } from "@opencode-ai/core/v1/session"
@@ -381,6 +382,7 @@ const layer = Layer.effect(
       }
       const userMessage = parent.info
       const compactionPart = parent.parts.find((part): part is SessionV1.CompactionPart => part.type === "compaction")
+      const provenance = yield* InstanceState.context.pipe(Effect.flatMap((instance) => Effect.promise(() => ForgeTrace.compactor(instance.directory, input.sessionID)))) // kilocode_change
 
       let messages = input.messages
       let replay:
@@ -758,6 +760,7 @@ const layer = Layer.effect(
         const found = KiloSession.resolveRoot(input.sessionID)
         const root = parent ? (found === input.sessionID ? parent : found) : input.sessionID
         const workspace = yield* InstanceState.context
+        yield* Effect.promise(() => provenance(summary ?? "")) // kilocode_change
         SessionExport.compaction({
           sessionId: input.sessionID,
           rootSessionId: root,

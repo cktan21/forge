@@ -1,0 +1,22 @@
+.embedding-usage {
+  border-top: 1px solid #29373d;
+  margin-top: 24px;
+  padding-top: 8px;
+}
+
+.embedding-usage dl {
+  font-size: 13px;
+  grid-template-columns: minmax(0, 2fr) minmax(7ch, 1fr);
+  line-height: 1.5;
+  max-width: 560px;
+}
+
+.embedding-usage dd {
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.embedding-usage details {
+  max-height: 300px;
+  overflow: auto;
+}

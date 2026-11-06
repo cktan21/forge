@@ -32,6 +32,7 @@ import { Provider } from "@/provider/provider"
 
 import { WebSearchTool } from "./websearch"
 import { KiloToolRegistry } from "../kilocode/tool/registry" // kilocode_change
+import { Forge } from "../kilocode/forge/service" // kilocode_change
 import { KiloCodeMode } from "../kilocode/tool/code-mode" // kilocode_change
 import { Notebook } from "@/kilocode/notebook/service" // kilocode_change
 import { AgentManager } from "@/kilocode/agent-manager/service" // kilocode_change
@@ -539,6 +540,7 @@ export const node = LayerNode.suspend(() =>
     layer,
     deps: [
       Config.node,
+      Forge.node, // kilocode_change
       Plugin.node,
       Question.node,
       Todo.node,

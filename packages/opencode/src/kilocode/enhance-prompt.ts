@@ -7,6 +7,9 @@ import { AppRuntime } from "@/effect/app-runtime"
 import { Effect } from "effect"
 import * as Log from "@opencode-ai/core/util/log"
 import { opencodeSessionHeaders } from "@/kilocode/provider/opencode-session-headers"
+import type { Usage } from "@kilocode/forge/schema"
+import { InstanceState } from "@/effect/instance-state"
+import * as Trace from "@/kilocode/forge/trace"
 
 const log = Log.create({ service: "enhance-prompt" })
 
@@ -29,7 +32,8 @@ export function clean(text: string) {
  * Calls generateText directly with a prompt-rewrite system instruction, no agent identity,
  * tools, or plugins. The user message is labeled as a draft so it stays rewrite input.
  */
-export async function enhancePrompt(text: string): Promise<string> {
+export async function enhancePrompt(text: string, observe?: (usage: Usage) => void): Promise<string> {
+  const started = Date.now()
   log.info("enhancing", { length: text.length })
 
   const resolved = await AppRuntime.runPromise(
@@ -38,26 +42,54 @@ export async function enhancePrompt(text: string): Promise<string> {
         const ref = yield* svc.defaultModel()
         const model = (yield* svc.getSmallModel(ref.providerID)) ?? (yield* svc.getModel(ref.providerID, ref.modelID))
         const language = yield* svc.getLanguage(model)
-        return { model, language }
+        const instance = yield* InstanceState.context
+        return { model, language, root: instance.directory }
       }),
     ),
   )
 
-  const result = await generateText({
-    model: resolved.language,
-    temperature: resolved.model.capabilities.temperature ? 0.7 : undefined,
-    providerOptions: ProviderTransform.providerOptions(
-      resolved.model,
-      mergeDeep(ProviderTransform.smallOptions(resolved.model), resolved.model.options),
-    ),
-    maxRetries: 3,
-    system: INSTRUCTION,
-    // Each call is a standalone rewrite, not part of a multi-turn conversation; a fresh ID
-    // per call still satisfies the opencode API's "stable per-conversation ID" requirement.
-    headers: opencodeSessionHeaders({ providerID: resolved.model.providerID, sessionID: randomUUID() }),
-    messages: [{ role: "user" as const, content: `Draft prompt to enhance, not answer:\n\n${text}` }],
+  const messages = [{ role: "user" as const, content: `Draft prompt to enhance, not answer:\n\n${text}` }]
+  const capture = await Trace.start({
+    root: resolved.root,
+    purpose: "generic-enhance",
+    model: `${resolved.model.providerID}/${resolved.model.id}`,
+    system: [INSTRUCTION],
+    messages,
+  })
+  if (observe && !capture)
+    throw new Error("Prompt enhancement accounting capture is unavailable. No model request was made.")
+  const invoke = () =>
+    generateText({
+      model: resolved.language,
+      temperature: resolved.model.capabilities.temperature ? 0.7 : undefined,
+      providerOptions: ProviderTransform.providerOptions(
+        resolved.model,
+        mergeDeep(ProviderTransform.smallOptions(resolved.model), resolved.model.options),
+      ),
+      maxRetries: 3,
+      system: INSTRUCTION,
+      // Each call is a standalone rewrite, not part of a multi-turn conversation; a fresh ID
+      // per call still satisfies the opencode API's "stable per-conversation ID" requirement.
+      headers: opencodeSessionHeaders({ providerID: resolved.model.providerID, sessionID: randomUUID() }),
+      messages,
+    })
+  const result = await (capture ? capture.run(invoke) : invoke()).catch(async (err) => {
+    await capture
+      ?.finish({}, true)
+      .catch((error) => log.warn("failed enhancement usage unavailable", { error: String(error) }))
+    throw err
   })
 
   log.info("enhanced", { length: result.text.length })
+  const measured = {
+    input: result.usage.inputTokens ?? 0,
+    output: result.usage.outputTokens ?? 0,
+    cached: result.usage.inputTokenDetails?.cacheReadTokens ?? 0,
+    milliseconds: Date.now() - started,
+    model: `${resolved.model.providerID}/${resolved.model.id}`,
+    measured: true,
+  }
+  await capture?.finish(measured).catch((err) => log.warn("enhancement usage unavailable", { error: String(err) }))
+  observe?.(measured)
   return clean(result.text)
 }

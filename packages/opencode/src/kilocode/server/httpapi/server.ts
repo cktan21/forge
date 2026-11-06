@@ -17,6 +17,7 @@ import { branchNameHandlers } from "./handlers/branch-name"
 import { commitMessageHandlers } from "./handlers/commit-message"
 import { configConsoleHandlers } from "./handlers/config-console"
 import { enhancePromptHandlers } from "./handlers/enhance-prompt"
+import { forgeHandlers } from "./handlers/forge"
 import { indexingHandlers } from "./handlers/indexing"
 import { instanceReloadHandlers } from "./handlers/instance-reload"
 import { kiloGatewayHandlers } from "./handlers/kilo-gateway"
@@ -38,6 +39,7 @@ export const provide = Layer.provide([
   commitMessageHandlers,
   configConsoleHandlers,
   enhancePromptHandlers,
+  forgeHandlers,
   indexingHandlers,
   instanceReloadHandlers,
   kiloGatewayHandlers,

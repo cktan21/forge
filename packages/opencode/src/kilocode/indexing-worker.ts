@@ -1,7 +1,7 @@
 import type { CodeIndexManager } from "@kilocode/kilo-indexing/engine"
 import { AsyncLocalStorage } from "node:async_hooks"
 import { format } from "node:util"
-import type { Request, Result, Event, Log } from "./indexing-worker-protocol"
+import type { Incoming, Request, Result, Event, Log } from "./indexing-worker-protocol"
 import { parseQdrantWarning } from "./indexing-warning"
 
 type Entry = {
@@ -13,6 +13,7 @@ type Entry = {
 const managers = new Map<string, Entry>()
 const context = new AsyncLocalStorage<string>()
 const queues = new Map<string, Promise<void>>()
+const searches = new Map<number, { key: string; controller: AbortController }>()
 
 function send(message: Result | Event) {
   postMessage(message)
@@ -65,7 +66,7 @@ async function init(request: Extract<Request, { method: "init" }>) {
   send({ type: "result", id: request.id, method: "init", ok: true, value: status.normalizeIndexingStatus(manager) })
 }
 
-async function handle(request: Request) {
+async function handle(request: Request, signal?: AbortSignal) {
   try {
     if (request.method === "dispose") {
       await dispose(request.key)
@@ -74,9 +75,11 @@ async function handle(request: Request) {
     }
 
     if (request.method === "search") {
+      signal?.throwIfAborted()
       const value = await managers
         .get(request.key)
-        ?.manager.searchIndex(request.input.query, request.input.directoryPrefix)
+        ?.manager.searchIndex(request.input.query, request.input.directoryPrefix, request.input.scope, signal)
+      signal?.throwIfAborted()
       send({ type: "result", id: request.id, method: "search", ok: true, value: value ?? [] })
       return
     }
@@ -88,11 +91,25 @@ async function handle(request: Request) {
   }
 }
 
-onmessage = (event: MessageEvent<Request>) => {
+onmessage = (event: MessageEvent<Incoming>) => {
   const request = event.data
+  // Cancellation must bypass the per-directory queue it is trying to release.
+  if (request.type === "cancel") {
+    const pending = searches.get(request.id)
+    if (pending?.key === request.key) pending.controller.abort()
+    return
+  }
+  if (request.method !== "search") {
+    for (const pending of searches.values()) {
+      if (pending.key === request.key) pending.controller.abort()
+    }
+  }
+  const controller = request.method === "search" ? new AbortController() : undefined
+  if (controller) searches.set(request.id, { key: request.key, controller })
   const prior = queues.get(request.key) ?? Promise.resolve()
-  const task = prior.then(() => context.run(request.key, () => handle(request)))
+  const task = prior.then(() => context.run(request.key, () => handle(request, controller?.signal)))
   const queued = task.finally(() => {
+    searches.delete(request.id)
     if (queues.get(request.key) === queued) queues.delete(request.key)
   })
   queues.set(request.key, queued)

@@ -2,11 +2,12 @@ import type {
   IndexingConfigInput,
   IndexingTelemetryEvent,
   VectorStoreSearchResult,
+  SearchScope,
 } from "@kilocode/kilo-indexing/engine"
 import type { IndexingStatus } from "@kilocode/kilo-indexing/status"
 import { zeroID } from "@opencode-ai/core/kilocode/zero-id"
 import { withTimeout } from "@/util/timeout"
-import type { Event, Log, Message, Request, Result } from "./indexing-worker-protocol"
+import type { Cancel, Event, Log, Message, Request, Result } from "./indexing-worker-protocol"
 import type { IndexingWarning } from "./indexing-warning"
 
 declare global {
@@ -24,7 +25,12 @@ export namespace IndexingWorker {
 
   export type Driver = {
     init(input: IndexingConfigInput, baselineDirectory?: string): Promise<IndexingStatus>
-    search(query: string, directoryPrefix?: string): Promise<VectorStoreSearchResult[]>
+    search(
+      query: string,
+      directoryPrefix?: string,
+      scope?: SearchScope,
+      signal?: AbortSignal,
+    ): Promise<VectorStoreSearchResult[]>
     dispose(): Promise<void>
   }
 
@@ -43,7 +49,16 @@ export namespace IndexingWorker {
 
   type Channel = {
     task: Worker
-    pending: Map<number, { resolve(message: Result): void; reject(err: unknown): void }>
+    pending: Map<
+      number,
+      {
+        key: string
+        method: Request["method"]
+        resolve(message: Result): void
+        reject(err: unknown): void
+        cancel(err: unknown, notify?: boolean): void
+      }
+    >
     hosts: Map<string, Host>
     id: number
     stopped: boolean
@@ -104,23 +119,48 @@ export namespace IndexingWorker {
     return state
   }
 
-  const call = <T>(state: Channel, request: Outgoing, read: (message: Result) => T) => {
+  const call = <T>(state: Channel, request: Outgoing, read: (message: Result) => T, signal?: AbortSignal) => {
+    if (signal?.aborted) return Promise.reject(signal.reason)
     if (state.stopped) return Promise.reject(new Error("Indexing worker is unavailable."))
     const id = state.id++
     const message: Request = { ...request, id }
-    return new Promise<T>((resolve, reject) => {
-      state.pending.set(id, {
-        resolve(result) {
-          try {
-            resolve(read(result))
-          } catch (err) {
-            reject(err)
-          }
-        },
-        reject,
-      })
-      state.task.postMessage(message)
+    const pending = Promise.withResolvers<T>()
+    const cleanup = () => signal?.removeEventListener("abort", abort)
+    const reject = (err: unknown) => {
+      cleanup()
+      pending.reject(err)
+    }
+    const cancel = (err: unknown, notify = true) => {
+      if (!state.pending.delete(id)) return
+      reject(err)
+      if (notify && request.method === "search" && !state.stopped) {
+        const message: Cancel = { type: "cancel", key: request.key, id }
+        state.task.postMessage(message)
+      }
+    }
+    const abort = () => cancel(signal?.reason)
+    state.pending.set(id, {
+      key: request.key,
+      method: request.method,
+      cancel,
+      reject,
+      resolve(result) {
+        cleanup()
+        try {
+          pending.resolve(read(result))
+        } catch (err) {
+          pending.reject(err)
+        }
+      },
     })
+    signal?.addEventListener("abort", abort, { once: true })
+    try {
+      state.task.postMessage(message)
+    } catch (err) {
+      state.pending.delete(id)
+      reject(err)
+    }
+    return pending.promise
   }
 
   const worker = (directory: string, root: string, hooks: Hooks): Host => {
@@ -170,15 +210,26 @@ export namespace IndexingWorker {
           },
         )
       },
-      search(query, directoryPrefix) {
-        return call(state, { type: "request", key, method: "search", input: { query, directoryPrefix } }, (message) => {
-          if (message.ok && message.method === "search") return message.value
-          throw new Error("Unexpected indexing worker search response.")
-        })
+      search(query, directoryPrefix, scope, signal) {
+        return call(
+          state,
+          { type: "request", key, method: "search", input: { query, directoryPrefix, scope } },
+          (message) => {
+            if (message.ok && message.method === "search") return message.value
+            throw new Error("Unexpected indexing worker search response.")
+          },
+          signal,
+        )
       },
       async dispose() {
         if (!active || state.stopped) return
         active = false
+        // The dispose message cancels the entire worker queue in one turn.
+        // Separate cancel messages could release queued searches between them.
+        for (const pending of state.pending.values()) {
+          if (pending.key === key && pending.method === "search")
+            pending.cancel(new DOMException("Indexing search cancelled by disposal.", "AbortError"), false)
+        }
         if (state.hosts.get(key) === host) state.hosts.delete(key)
         if (pool.get(key) === host) pool.delete(key)
         try {

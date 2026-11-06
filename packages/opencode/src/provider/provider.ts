@@ -1,3 +1,4 @@
+import * as ForgeTrace from "@/kilocode/forge/trace" // kilocode_change
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import os from "os"
 import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
@@ -1907,7 +1908,7 @@ const layer = Layer.effect(
         delete options["headerTimeout"]
 
         options["fetch"] = async (input: any, init?: BunFetchRequestInit) => {
-          const fetchFn = customFetch ?? fetch
+          const fetchFn = ForgeTrace.transport(customFetch ?? fetch) // kilocode_change - local request provenance
           const opts = init ?? {}
           const chunkAbortCtl = typeof chunkTimeout === "number" && chunkTimeout > 0 ? new AbortController() : undefined
           const timeout = buildTimeoutSignal(options) // kilocode_change - use cancellable timeout for connection phase

@@ -11,6 +11,7 @@ import {
   DaemonCommand,
   DevAliasCommand,
   DevSetupCommand,
+  ForgeUsageCommand,
   KiloConsoleCommand,
   ProfileCommand,
   PtySmokeCommand,
@@ -47,6 +48,7 @@ export namespace KiloCli {
       .command(CloudCommand)
       .command(RollCallCommand)
       .command(ProfileCommand)
+      .command(ForgeUsageCommand)
       .command(RemoteCommand)
       .command(DaemonCommand)
       .command(ConfigCLICommand)

@@ -476,6 +476,7 @@ describe("indexing startup degradation", () => {
           expect(KiloIndexing.ready()).toBe(false)
           expect(await KiloIndexing.search("boot failure")).toEqual([])
           expect(dispose).toHaveBeenCalledTimes(1)
+          expect(KiloIndexing.peek(tmp.path)).toEqual({ initialized: false, state: "Error" })
         },
       })
     } finally {
@@ -499,6 +500,7 @@ describe("indexing startup degradation", () => {
 
           expect(init).toHaveBeenCalled()
           expect(KiloIndexing.ready()).toBe(false)
+          expect(KiloIndexing.peek(tmp.path)).toEqual({ initialized: false, state: "In Progress" })
           expect(await KiloIndexing.available()).toBe(false)
           const search = KiloIndexing.search("boot failure")
           const pending = await Promise.race([search.then(() => false), Promise.resolve(true)])
@@ -530,6 +532,11 @@ describe("indexing startup degradation", () => {
         expect(await KiloIndexing.available()).toBe(false)
         expect(KiloIndexing.ready()).toBe(false)
         expect(await KiloIndexing.search("disabled")).toEqual([])
+        expect(init).not.toHaveBeenCalled()
+        expect(KiloIndexing.peek(tmp.path)).toEqual({ initialized: false, state: "Disabled" })
+        const response = await Server.Default().app.request("/forge/status", { headers: { "x-kilo-directory": tmp.path } })
+        expect(response.status).toBe(200)
+        expect((await response.json()).semantic).toEqual({ state: "disabled", searchable: false })
         expect(init).not.toHaveBeenCalled()
       },
     })

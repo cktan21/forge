@@ -34,6 +34,7 @@ import * as Truncate from "@/tool/truncate"
 import { InstanceState } from "@/effect/instance-state"
 import { KiloMemory } from "@kilocode/kilo-memory/effect"
 import { MemoryPaths } from "@kilocode/kilo-memory/effect/paths"
+import { ForgeTools } from "../forge/tools"
 
 const log = Log.create({ service: "kilocode-tool-registry" })
 type Deps = { agent: Agent.Interface; truncate: Truncate.Interface; indexing?: boolean }
@@ -96,6 +97,7 @@ export namespace KiloToolRegistry {
 
   export function infos(host?: AgentManager.Interface, notebook?: Notebook.Interface) {
     return Effect.gen(function* () {
+      const forge = yield* ForgeTools
       const recall = yield* RecallTool
       const managerModels = yield* AgentManagerModelsTool
       const memory = yield* MemoryRecallTool
@@ -127,6 +129,7 @@ export namespace KiloToolRegistry {
       })
       if (!notebook)
         return {
+          forge,
           recall,
           managerModels,
           memory,
@@ -153,6 +156,7 @@ export namespace KiloToolRegistry {
         notebookExecute: NotebookExecuteTool,
       }).pipe(Effect.provideService(Notebook.Service, notebook))
       return {
+        forge,
         recall,
         managerModels,
         memory,
@@ -181,6 +185,7 @@ export namespace KiloToolRegistry {
    * it has no Service deps beyond what Tool.init itself needs. */
   export function build(
     tools: {
+      forge?: Tool.Info[]
       recall: Tool.Info
       managerModels: Tool.Info
       memory: Tool.Info
@@ -248,6 +253,7 @@ export namespace KiloToolRegistry {
       const semantic = yield* semanticTool(deps, loaders)
       return {
         ...base,
+        forge: yield* Effect.forEach(tools.forge ?? [], (tool) => Tool.init(tool)),
         ...board,
         ...report,
         ...goal,
@@ -312,6 +318,7 @@ export namespace KiloToolRegistry {
   /** Kilo-specific tools to append to the builtin list */
   export function extra(
     tools: {
+      forge?: Tool.Def[]
       semantic?: Tool.Def
       recall: Tool.Def
       managerModels: Tool.Def
@@ -350,6 +357,7 @@ export namespace KiloToolRegistry {
   ): Tool.Def[] {
     const enabled = BoardEnabled.on(cfg, flags)
     return [
+      ...(process.env.KILO_FORGE_DISABLED === "1" ? [] : tools.forge ?? []),
       ...(tools.goalReport ? [tools.goalReport] : []),
       ...((Flag.KILO_CLIENT === "cli" || Flag.KILO_CLIENT === "vscode") && tools.goal ? [tools.goal] : []),
       ...(cfg.experimental?.image_generation === true ? [tools.image] : []),

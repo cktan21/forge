@@ -3,6 +3,7 @@ import { Effect } from "effect"
 import { HttpClient, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { createHash } from "node:crypto"
 import { ConsoleAssets } from "@/kilocode/console/assets" // kilocode_change
+import * as ForgeAssets from "@/kilocode/forge/assets" // kilocode_change
 
 let embeddedUIPromise: Promise<Record<string, string> | null> | undefined
 
@@ -62,7 +63,7 @@ export function serveUIEffect(
     const path = new URL(request.url, "http://localhost").pathname
 
     // kilocode_change start - serve Kilo Console under /console
-    const asset = yield* Effect.promise(() => ConsoleAssets.resolve(path))
+    const asset = yield* Effect.promise(async () => (await ForgeAssets.resolve(path)) ?? ConsoleAssets.resolve(path)) // kilocode_change
     if (asset && "file" in asset) {
       return yield* services.fs.readFile(asset.file).pipe(
         Effect.map((body) => embeddedUIResponse(asset.file, body)),

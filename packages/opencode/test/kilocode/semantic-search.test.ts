@@ -91,7 +91,12 @@ describe("tool.semantic_search", () => {
             query: "authentication middleware",
             path: "./src/../src/tool",
           })
-          expect(search).toHaveBeenCalledWith("authentication middleware", path.normalize("src/tool"))
+          expect(search).toHaveBeenCalledWith(
+            "authentication middleware",
+            path.normalize("src/tool"),
+            undefined,
+            expect.any(AbortSignal),
+          )
           // The searched scope is named in full, so a caller can tell what an
           // empty result actually covered.
           expect(result.output.split("\n")[0]).toBe(
@@ -118,7 +123,7 @@ describe("tool.semantic_search", () => {
           const tool = await initTool()
           const result = await rt.runPromise(tool.execute({ query: "database connection" }, baseCtx))
 
-          expect(search).toHaveBeenCalledWith("database connection", undefined)
+          expect(search).toHaveBeenCalledWith("database connection", undefined, undefined, expect.any(AbortSignal))
           expect(result.output.split("\n")).toEqual([
             `No results for "database connection" in ${slash(tmp.path)}.`,
             "The index is up to date, so no semantically similar code exists in this scope.",

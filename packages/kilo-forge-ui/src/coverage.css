@@ -1,0 +1,17 @@
+.embedding-coverage {
+  border-top: 1px solid #29373d;
+  margin-top: 24px;
+  padding-top: 8px;
+}
+
+.embedding-coverage dl {
+  font-size: 13px;
+  grid-template-columns: minmax(0, 2fr) minmax(3ch, 1fr);
+  line-height: 1.5;
+  max-width: 440px;
+}
+
+.embedding-coverage dd {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
