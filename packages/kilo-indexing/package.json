@@ -19,6 +19,9 @@
     "./detect": "./src/detect.ts",
     "./embedding-models": "./src/kilo-embedding-models.ts",
     "./engine": "./src/indexing/index.ts",
+    "./search-scope": "./src/indexing/search-scope.ts",
+    "./search-wait": "./src/indexing/search-wait.ts",
+    "./parser": "./src/forge-parser.ts",
     "./file-extensions": "./src/file-extensions.ts",
     "./server": "./src/server/routes.ts",
     "./status": "./src/status.ts"

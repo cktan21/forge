@@ -1,0 +1,28 @@
+{
+  "name": "@kilocode/forge",
+  "version": "7.8.14",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "exports": { ".": "./src/index.ts", "./*": "./src/*.ts" },
+  "scripts": {
+    "typecheck": "tsgo --noEmit",
+    "test": "bun test ./test --timeout 30000",
+    "test:evaluation": "bun test ./benchmarks/test --timeout 30000",
+    "test:all": "bun run test && bun run test:evaluation",
+    "benchmark": "bun benchmarks/run.ts",
+    "evaluate": "bun benchmarks/evaluate.ts"
+  },
+  "dependencies": {
+    "@kilocode/sdk": "workspace:*",
+    "@kilocode/kilo-indexing": "workspace:*",
+    "effect": "catalog:",
+    "ignore": "7.0.5",
+    "jsonc-parser": "3.3.1",
+    "marked": "catalog:",
+    "smol-toml": "^1.6.1",
+    "unpdf": "1.9.1",
+    "web-tree-sitter": "0.25.10"
+  },
+  "devDependencies": { "@tsconfig/bun": "catalog:", "@types/bun": "catalog:", "@types/node": "catalog:", "@typescript/native-preview": "catalog:" }
+}

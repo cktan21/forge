@@ -1,9 +1,10 @@
-import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test"
+import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from "bun:test"
 import { createHash } from "crypto"
+import * as qdrant from "@qdrant/js-client-rest"
 
 import { DEFAULT_MAX_SEARCH_RESULTS, DEFAULT_SEARCH_MIN_SCORE } from "../../../../src/indexing/constants"
+import { QdrantVectorStore } from "../../../../src/indexing/vector-store/qdrant-client"
 
-// Set up mocks BEFORE importing modules that use them
 const mockGetCollection = mock()
 const mockCreateCollection = mock()
 const mockDeleteCollection = mock()
@@ -12,6 +13,7 @@ const mockUpsert = mock()
 const mockQuery = mock()
 const mockDelete = mock()
 const mockRetrieve = mock()
+const mockScroll = mock()
 
 const mockQdrantClientInstance = {
   getCollection: mockGetCollection,
@@ -22,18 +24,16 @@ const mockQdrantClientInstance = {
   query: mockQuery,
   delete: mockDelete,
   retrieve: mockRetrieve,
+  scroll: mockScroll,
 }
 
-const MockQdrantClientConstructor = mock(() => mockQdrantClientInstance)
-
-mock.module("@qdrant/js-client-rest", () => ({
-  QdrantClient: MockQdrantClientConstructor,
-}))
-
-// Now import the module under test
-import { QdrantVectorStore } from "../../../../src/indexing/vector-store/qdrant-client"
+// Bun supports constructor spies at runtime, but its types only accept callable signatures.
+const sdk = qdrant as unknown as {
+  QdrantClient: (...args: ConstructorParameters<typeof qdrant.QdrantClient>) => typeof mockQdrantClientInstance
+}
 
 describe("QdrantVectorStore", () => {
+  let MockQdrantClientConstructor: ReturnType<typeof spyOn<typeof sdk, "QdrantClient">>
   let vectorStore: QdrantVectorStore
   const mockWorkspacePath = "/test/workspace"
   const mockQdrantUrl = "http://mock-qdrant:6333"
@@ -42,9 +42,8 @@ describe("QdrantVectorStore", () => {
   const expectedCollectionName = `ws-${createHash("sha256").update(mockWorkspacePath).digest("hex").substring(0, 16)}`
 
   beforeEach(() => {
-    // Reset all mocks
-    MockQdrantClientConstructor.mockClear()
-    MockQdrantClientConstructor.mockReturnValue(mockQdrantClientInstance)
+    // Module mocks survive mockReset and contaminate real-client tests in the same process.
+    MockQdrantClientConstructor = spyOn(sdk, "QdrantClient").mockReturnValue(mockQdrantClientInstance)
     mockGetCollection.mockReset()
     mockCreateCollection.mockReset()
     mockDeleteCollection.mockReset()
@@ -53,12 +52,13 @@ describe("QdrantVectorStore", () => {
     mockQuery.mockReset()
     mockDelete.mockReset()
     mockRetrieve.mockReset()
+    mockScroll.mockReset()
 
     vectorStore = new QdrantVectorStore(mockWorkspacePath, mockQdrantUrl, mockVectorSize, mockApiKey)
   })
 
   afterEach(() => {
-    MockQdrantClientConstructor.mockClear()
+    MockQdrantClientConstructor.mockRestore()
     mockGetCollection.mockReset()
     mockCreateCollection.mockReset()
     mockDeleteCollection.mockReset()
@@ -67,6 +67,7 @@ describe("QdrantVectorStore", () => {
     mockQuery.mockReset()
     mockDelete.mockReset()
     mockRetrieve.mockReset()
+    mockScroll.mockReset()
   })
 
   test("should correctly initialize QdrantClient and collectionName in constructor", () => {
@@ -84,22 +85,58 @@ describe("QdrantVectorStore", () => {
     expect((vectorStore as any).vectorSize).toBe(mockVectorSize)
   })
 
-  test("should handle constructor with default URL when none provided", () => {
-    const vectorStoreWithDefaults = new QdrantVectorStore(mockWorkspacePath, undefined as any, mockVectorSize)
+  test("strict eligibility composes path and identity filters with prefix and metadata exclusion", async () => {
+    mockQuery.mockResolvedValue({ points: [] })
+    const id = "fc0e89b2-d9a3-4fd7-9e6a-9ff9b2f0efc9"
+    await vectorStore.search([1, 0], "src", 0, 1, { paths: ["src/allowed.ts"], ids: [id] })
+    expect(mockQuery).toHaveBeenCalledWith(
+      expectedCollectionName,
+      expect.objectContaining({
+        limit: 1,
+        filter: {
+          must: [
+            { key: "pathSegments.0", match: { value: "src" } },
+            { key: "filePath", match: { any: ["src/allowed.ts"] } },
+            { has_id: [id] },
+          ],
+          must_not: [{ key: "type", match: { value: "metadata" } }],
+        },
+      }),
+    )
+    expect(await vectorStore.search([1, 0], undefined, 0, 1, { paths: [], ids: [] })).toEqual([])
+    expect(mockQuery).toHaveBeenCalledTimes(1)
+  })
 
-    expect(MockQdrantClientConstructor).toHaveBeenLastCalledWith({
-      host: "localhost",
-      https: false,
-      port: 6333,
-      apiKey: undefined,
-      headers: {
-        "User-Agent": "Kilo-Code",
-      },
-    })
+  test("strict metadata enumeration follows pages without vector ranking up to the caller cap", async () => {
+    const payload = { filePath: "src/allowed.ts", fileHash: "fixture", codeChunk: "current", startLine: 1, endLine: 1 }
+    mockScroll
+      .mockResolvedValueOnce({ points: [{ id: 1, payload }], next_page_offset: 2 })
+      .mockResolvedValueOnce({ points: [{ id: 2, payload }], next_page_offset: null })
+    expect((await vectorStore.candidates(["src/allowed.ts"], 2)).map((row) => row.id)).toEqual([1, 2])
+    expect(mockScroll).toHaveBeenNthCalledWith(
+      1,
+      expectedCollectionName,
+      expect.objectContaining({
+        filter: {
+          must: [{ key: "filePath", match: { any: ["src/allowed.ts"] } }],
+          must_not: [{ key: "type", match: { value: "metadata" } }],
+        },
+        limit: 2,
+        with_vector: false,
+      }),
+    )
+    expect(mockScroll).toHaveBeenNthCalledWith(
+      2,
+      expectedCollectionName,
+      expect.objectContaining({ offset: 2, limit: 1 }),
+    )
+    expect(mockQuery).not.toHaveBeenCalled()
+    mockScroll.mockResolvedValueOnce({ points: [], next_page_offset: 3 })
+    await expect(vectorStore.candidates(["src/allowed.ts"], 2)).rejects.toThrow("complete semantic eligibility mask")
   })
 
   test("should handle constructor without API key", () => {
-    const vectorStoreWithoutKey = new QdrantVectorStore(mockWorkspacePath, mockQdrantUrl, mockVectorSize)
+    new QdrantVectorStore(mockWorkspacePath, mockQdrantUrl, mockVectorSize)
 
     expect(MockQdrantClientConstructor).toHaveBeenLastCalledWith({
       host: "mock-qdrant",
@@ -112,392 +149,154 @@ describe("QdrantVectorStore", () => {
     })
   })
 
-  describe("URL Parsing and Explicit Port Handling", () => {
-    describe("HTTPS URL handling", () => {
-      test("should use explicit port 443 for HTTPS URLs without port (fixes the main bug)", () => {
-        const vectorStore = new QdrantVectorStore(mockWorkspacePath, "https://qdrant.ashbyfam.com", mockVectorSize)
-        expect(MockQdrantClientConstructor).toHaveBeenLastCalledWith({
-          host: "qdrant.ashbyfam.com",
-          https: true,
-          port: 443,
-          prefix: undefined,
-          apiKey: undefined,
-          headers: {
-            "User-Agent": "Kilo-Code",
-          },
-        })
-        expect((vectorStore as any).qdrantUrl).toBe("https://qdrant.ashbyfam.com")
-      })
-
-      test("should use explicit port for HTTPS URLs with explicit port", () => {
-        const vectorStore = new QdrantVectorStore(mockWorkspacePath, "https://example.com:9000", mockVectorSize)
-        expect(MockQdrantClientConstructor).toHaveBeenLastCalledWith({
-          host: "example.com",
-          https: true,
-          port: 9000,
-          prefix: undefined,
-          apiKey: undefined,
-          headers: {
-            "User-Agent": "Kilo-Code",
-          },
-        })
-        expect((vectorStore as any).qdrantUrl).toBe("https://example.com:9000")
-      })
-
-      test("should use port 443 for HTTPS URLs with paths and query parameters", () => {
-        const vectorStore = new QdrantVectorStore(
-          mockWorkspacePath,
-          "https://example.com/api/v1?key=value",
-          mockVectorSize,
-        )
-        expect(MockQdrantClientConstructor).toHaveBeenLastCalledWith({
-          host: "example.com",
-          https: true,
-          port: 443,
-          prefix: "/api/v1",
-          apiKey: undefined,
-          headers: {
-            "User-Agent": "Kilo-Code",
-          },
-        })
-        expect((vectorStore as any).qdrantUrl).toBe("https://example.com/api/v1?key=value")
-      })
-    })
-
-    describe("HTTP URL handling", () => {
-      test("should use explicit port 80 for HTTP URLs without port", () => {
-        const vectorStore = new QdrantVectorStore(mockWorkspacePath, "http://example.com", mockVectorSize)
-        expect(MockQdrantClientConstructor).toHaveBeenLastCalledWith({
-          host: "example.com",
-          https: false,
-          port: 80,
-          prefix: undefined,
-          apiKey: undefined,
-          headers: {
-            "User-Agent": "Kilo-Code",
-          },
-        })
-        expect((vectorStore as any).qdrantUrl).toBe("http://example.com")
-      })
-
-      test("should use explicit port for HTTP URLs with explicit port", () => {
-        const vectorStore = new QdrantVectorStore(mockWorkspacePath, "http://localhost:8080", mockVectorSize)
-        expect(MockQdrantClientConstructor).toHaveBeenLastCalledWith({
-          host: "localhost",
-          https: false,
-          port: 8080,
-          prefix: undefined,
-          apiKey: undefined,
-          headers: {
-            "User-Agent": "Kilo-Code",
-          },
-        })
-        expect((vectorStore as any).qdrantUrl).toBe("http://localhost:8080")
-      })
-
-      test("should use port 80 for HTTP URLs while preserving paths and query parameters", () => {
-        const vectorStore = new QdrantVectorStore(
-          mockWorkspacePath,
-          "http://example.com/api/v1?key=value",
-          mockVectorSize,
-        )
-        expect(MockQdrantClientConstructor).toHaveBeenLastCalledWith({
-          host: "example.com",
-          https: false,
-          port: 80,
-          prefix: "/api/v1",
-          apiKey: undefined,
-          headers: {
-            "User-Agent": "Kilo-Code",
-          },
-        })
-        expect((vectorStore as any).qdrantUrl).toBe("http://example.com/api/v1?key=value")
-      })
-    })
-
-    describe("Hostname handling", () => {
-      test("should convert hostname to http with port 80", () => {
-        const vectorStore = new QdrantVectorStore(mockWorkspacePath, "qdrant.example.com", mockVectorSize)
-        expect(MockQdrantClientConstructor).toHaveBeenLastCalledWith({
-          host: "qdrant.example.com",
-          https: false,
-          port: 80,
-          apiKey: undefined,
-          headers: {
-            "User-Agent": "Kilo-Code",
-          },
-        })
-        expect((vectorStore as any).qdrantUrl).toBe("http://qdrant.example.com")
-      })
-
-      test("should handle hostname:port format with explicit port", () => {
-        const vectorStore = new QdrantVectorStore(mockWorkspacePath, "localhost:6333", mockVectorSize)
-        expect(MockQdrantClientConstructor).toHaveBeenLastCalledWith({
-          host: "localhost",
-          https: false,
-          port: 6333,
-          apiKey: undefined,
-          headers: {
-            "User-Agent": "Kilo-Code",
-          },
-        })
-        expect((vectorStore as any).qdrantUrl).toBe("http://localhost:6333")
-      })
-
-      test("should handle explicit HTTP URLs correctly", () => {
-        const vectorStore = new QdrantVectorStore(mockWorkspacePath, "http://localhost:9000", mockVectorSize)
-        expect(MockQdrantClientConstructor).toHaveBeenLastCalledWith({
-          host: "localhost",
-          https: false,
-          port: 9000,
-          apiKey: undefined,
-          headers: {
-            "User-Agent": "Kilo-Code",
-          },
-        })
-        expect((vectorStore as any).qdrantUrl).toBe("http://localhost:9000")
-      })
-    })
-
-    describe("IP address handling", () => {
-      test("should convert IP address to http with port 80", () => {
-        const vectorStore = new QdrantVectorStore(mockWorkspacePath, "192.168.1.100", mockVectorSize)
-        expect(MockQdrantClientConstructor).toHaveBeenLastCalledWith({
-          host: "192.168.1.100",
-          https: false,
-          port: 80,
-          apiKey: undefined,
-          headers: {
-            "User-Agent": "Kilo-Code",
-          },
-        })
-        expect((vectorStore as any).qdrantUrl).toBe("http://192.168.1.100")
-      })
-
-      test("should handle IP:port format with explicit port", () => {
-        const vectorStore = new QdrantVectorStore(mockWorkspacePath, "192.168.1.100:6333", mockVectorSize)
-        expect(MockQdrantClientConstructor).toHaveBeenLastCalledWith({
-          host: "192.168.1.100",
-          https: false,
-          port: 6333,
-          apiKey: undefined,
-          headers: {
-            "User-Agent": "Kilo-Code",
-          },
-        })
-        expect((vectorStore as any).qdrantUrl).toBe("http://192.168.1.100:6333")
-      })
-    })
-
-    describe("Edge cases", () => {
-      test("should handle undefined URL with host-based config", () => {
-        const vectorStore = new QdrantVectorStore(mockWorkspacePath, undefined as any, mockVectorSize)
-        expect(MockQdrantClientConstructor).toHaveBeenLastCalledWith({
-          host: "localhost",
-          https: false,
-          port: 6333,
-          apiKey: undefined,
-          headers: {
-            "User-Agent": "Kilo-Code",
-          },
-        })
-        expect((vectorStore as any).qdrantUrl).toBe("http://localhost:6333")
-      })
-
-      test("should handle empty string URL with host-based config", () => {
-        const vectorStore = new QdrantVectorStore(mockWorkspacePath, "", mockVectorSize)
-        expect(MockQdrantClientConstructor).toHaveBeenLastCalledWith({
-          host: "localhost",
-          https: false,
-          port: 6333,
-          apiKey: undefined,
-          headers: {
-            "User-Agent": "Kilo-Code",
-          },
-        })
-        expect((vectorStore as any).qdrantUrl).toBe("http://localhost:6333")
-      })
-
-      test("should handle whitespace-only URL with host-based config", () => {
-        const vectorStore = new QdrantVectorStore(mockWorkspacePath, "   ", mockVectorSize)
-        expect(MockQdrantClientConstructor).toHaveBeenLastCalledWith({
-          host: "localhost",
-          https: false,
-          port: 6333,
-          apiKey: undefined,
-          headers: {
-            "User-Agent": "Kilo-Code",
-          },
-        })
-        expect((vectorStore as any).qdrantUrl).toBe("http://localhost:6333")
-      })
-    })
-
-    describe("Invalid URL fallback", () => {
-      test("should treat invalid URLs as hostnames with port 80", () => {
-        const vectorStore = new QdrantVectorStore(mockWorkspacePath, "invalid-url-format", mockVectorSize)
-        expect(MockQdrantClientConstructor).toHaveBeenLastCalledWith({
-          host: "invalid-url-format",
-          https: false,
-          port: 80,
-          apiKey: undefined,
-          headers: {
-            "User-Agent": "Kilo-Code",
-          },
-        })
-        expect((vectorStore as any).qdrantUrl).toBe("http://invalid-url-format")
-      })
-    })
-  })
-
-  describe("URL Prefix Handling", () => {
-    test("should pass the URL pathname as prefix to QdrantClient if not root", () => {
-      const vectorStoreWithPrefix = new QdrantVectorStore(
-        mockWorkspacePath,
-        "http://localhost:6333/some/path",
-        mockVectorSize,
-      )
+  describe("URL normalization", () => {
+    test.each([
+      {
+        name: "should use explicit port 443 for HTTPS URLs without port (fixes the main bug)",
+        input: "https://qdrant.ashbyfam.com",
+        url: "https://qdrant.ashbyfam.com",
+        opts: { host: "qdrant.ashbyfam.com", https: true, port: 443, prefix: undefined },
+      },
+      {
+        name: "should use explicit port for HTTPS URLs with explicit port",
+        input: "https://example.com:9000",
+        url: "https://example.com:9000",
+        opts: { host: "example.com", https: true, port: 9000, prefix: undefined },
+      },
+      {
+        name: "should use port 443 for HTTPS URLs with paths and query parameters",
+        input: "https://example.com/api/v1?key=value",
+        url: "https://example.com/api/v1?key=value",
+        opts: { host: "example.com", https: true, port: 443, prefix: "/api/v1" },
+      },
+      {
+        name: "should use explicit port 80 for HTTP URLs without port",
+        input: "http://example.com",
+        url: "http://example.com",
+        opts: { host: "example.com", https: false, port: 80, prefix: undefined },
+      },
+      {
+        name: "should use explicit port for HTTP URLs with explicit port",
+        input: "http://localhost:8080",
+        url: "http://localhost:8080",
+        opts: { host: "localhost", https: false, port: 8080, prefix: undefined },
+      },
+      {
+        name: "should use port 80 for HTTP URLs while preserving paths and query parameters",
+        input: "http://example.com/api/v1?key=value",
+        url: "http://example.com/api/v1?key=value",
+        opts: { host: "example.com", https: false, port: 80, prefix: "/api/v1" },
+      },
+      {
+        name: "should convert hostname to http with port 80",
+        input: "qdrant.example.com",
+        url: "http://qdrant.example.com",
+        opts: { host: "qdrant.example.com", https: false, port: 80 },
+      },
+      {
+        name: "should handle hostname:port format with explicit port",
+        input: "localhost:6333",
+        url: "http://localhost:6333",
+        opts: { host: "localhost", https: false, port: 6333 },
+      },
+      {
+        name: "should handle explicit HTTP URLs correctly",
+        input: "http://localhost:9000",
+        url: "http://localhost:9000",
+        opts: { host: "localhost", https: false, port: 9000 },
+      },
+      {
+        name: "should convert IP address to http with port 80",
+        input: "192.168.1.100",
+        url: "http://192.168.1.100",
+        opts: { host: "192.168.1.100", https: false, port: 80 },
+      },
+      {
+        name: "should handle IP:port format with explicit port",
+        input: "192.168.1.100:6333",
+        url: "http://192.168.1.100:6333",
+        opts: { host: "192.168.1.100", https: false, port: 6333 },
+      },
+      {
+        name: "should handle undefined URL with host-based config",
+        input: undefined,
+        url: "http://localhost:6333",
+        opts: { host: "localhost", https: false, port: 6333 },
+      },
+      {
+        name: "should handle empty string URL with host-based config",
+        input: "",
+        url: "http://localhost:6333",
+        opts: { host: "localhost", https: false, port: 6333 },
+      },
+      {
+        name: "should handle whitespace-only URL with host-based config",
+        input: "   ",
+        url: "http://localhost:6333",
+        opts: { host: "localhost", https: false, port: 6333 },
+      },
+      {
+        name: "should treat invalid URLs as hostnames with port 80",
+        input: "invalid-url-format",
+        url: "http://invalid-url-format",
+        opts: { host: "invalid-url-format", https: false, port: 80 },
+      },
+      {
+        name: "should pass the URL pathname as prefix to QdrantClient if not root",
+        input: "http://localhost:6333/some/path",
+        url: "http://localhost:6333/some/path",
+        opts: { host: "localhost", https: false, port: 6333, prefix: "/some/path" },
+      },
+      {
+        name: "should not pass prefix if the URL pathname is root ('/')",
+        input: "http://localhost:6333/",
+        url: "http://localhost:6333/",
+        opts: { host: "localhost", https: false, port: 6333, prefix: undefined },
+      },
+      {
+        name: "should handle HTTPS URL with path as prefix",
+        input: "https://qdrant.ashbyfam.com/api",
+        url: "https://qdrant.ashbyfam.com/api",
+        opts: { host: "qdrant.ashbyfam.com", https: true, port: 443, prefix: "/api" },
+      },
+      {
+        name: "should normalize URL pathname by removing trailing slash for prefix",
+        input: "http://localhost:6333/api/",
+        url: "http://localhost:6333/api/",
+        opts: { host: "localhost", https: false, port: 6333, prefix: "/api" },
+      },
+      {
+        name: "should normalize URL pathname by removing multiple trailing slashes for prefix",
+        input: "http://localhost:6333/api///",
+        url: "http://localhost:6333/api///",
+        opts: { host: "localhost", https: false, port: 6333, prefix: "/api" },
+      },
+      {
+        name: "should handle multiple path segments correctly for prefix",
+        input: "http://localhost:6333/api/v1/qdrant",
+        url: "http://localhost:6333/api/v1/qdrant",
+        opts: { host: "localhost", https: false, port: 6333, prefix: "/api/v1/qdrant" },
+      },
+      {
+        name: "should handle complex URL with multiple segments, multiple trailing slashes, query params, and fragment",
+        input: "https://example.com/ollama/api/v1///?key=value#pos",
+        url: "https://example.com/ollama/api/v1///?key=value#pos",
+        opts: { host: "example.com", https: true, port: 443, prefix: "/ollama/api/v1" },
+      },
+      {
+        name: "should ignore query parameters and fragments when determining prefix",
+        input: "http://localhost:6333/api/path?key=value#fragment",
+        url: "http://localhost:6333/api/path?key=value#fragment",
+        opts: { host: "localhost", https: false, port: 6333, prefix: "/api/path" },
+      },
+    ])("$name", (row) => {
+      const store = new QdrantVectorStore(mockWorkspacePath, row.input, mockVectorSize)
       expect(MockQdrantClientConstructor).toHaveBeenLastCalledWith({
-        host: "localhost",
-        https: false,
-        port: 6333,
-        prefix: "/some/path",
+        ...row.opts,
         apiKey: undefined,
-        headers: {
-          "User-Agent": "Kilo-Code",
-        },
+        headers: { "User-Agent": "Kilo-Code" },
       })
-      expect((vectorStoreWithPrefix as any).qdrantUrl).toBe("http://localhost:6333/some/path")
-    })
-
-    test("should not pass prefix if the URL pathname is root ('/')", () => {
-      const vectorStoreWithoutPrefix = new QdrantVectorStore(
-        mockWorkspacePath,
-        "http://localhost:6333/",
-        mockVectorSize,
-      )
-      expect(MockQdrantClientConstructor).toHaveBeenLastCalledWith({
-        host: "localhost",
-        https: false,
-        port: 6333,
-        prefix: undefined,
-        apiKey: undefined,
-        headers: {
-          "User-Agent": "Kilo-Code",
-        },
-      })
-      expect((vectorStoreWithoutPrefix as any).qdrantUrl).toBe("http://localhost:6333/")
-    })
-
-    test("should handle HTTPS URL with path as prefix", () => {
-      const vectorStoreWithHttpsPrefix = new QdrantVectorStore(
-        mockWorkspacePath,
-        "https://qdrant.ashbyfam.com/api",
-        mockVectorSize,
-      )
-      expect(MockQdrantClientConstructor).toHaveBeenLastCalledWith({
-        host: "qdrant.ashbyfam.com",
-        https: true,
-        port: 443,
-        prefix: "/api",
-        apiKey: undefined,
-        headers: {
-          "User-Agent": "Kilo-Code",
-        },
-      })
-      expect((vectorStoreWithHttpsPrefix as any).qdrantUrl).toBe("https://qdrant.ashbyfam.com/api")
-    })
-
-    test("should normalize URL pathname by removing trailing slash for prefix", () => {
-      const vectorStoreWithTrailingSlash = new QdrantVectorStore(
-        mockWorkspacePath,
-        "http://localhost:6333/api/",
-        mockVectorSize,
-      )
-      expect(MockQdrantClientConstructor).toHaveBeenLastCalledWith({
-        host: "localhost",
-        https: false,
-        port: 6333,
-        prefix: "/api",
-        apiKey: undefined,
-        headers: {
-          "User-Agent": "Kilo-Code",
-        },
-      })
-      expect((vectorStoreWithTrailingSlash as any).qdrantUrl).toBe("http://localhost:6333/api/")
-    })
-
-    test("should normalize URL pathname by removing multiple trailing slashes for prefix", () => {
-      const vectorStoreWithMultipleTrailingSlashes = new QdrantVectorStore(
-        mockWorkspacePath,
-        "http://localhost:6333/api///",
-        mockVectorSize,
-      )
-      expect(MockQdrantClientConstructor).toHaveBeenLastCalledWith({
-        host: "localhost",
-        https: false,
-        port: 6333,
-        prefix: "/api",
-        apiKey: undefined,
-        headers: {
-          "User-Agent": "Kilo-Code",
-        },
-      })
-      expect((vectorStoreWithMultipleTrailingSlashes as any).qdrantUrl).toBe("http://localhost:6333/api///")
-    })
-
-    test("should handle multiple path segments correctly for prefix", () => {
-      const vectorStoreWithMultiSegment = new QdrantVectorStore(
-        mockWorkspacePath,
-        "http://localhost:6333/api/v1/qdrant",
-        mockVectorSize,
-      )
-      expect(MockQdrantClientConstructor).toHaveBeenLastCalledWith({
-        host: "localhost",
-        https: false,
-        port: 6333,
-        prefix: "/api/v1/qdrant",
-        apiKey: undefined,
-        headers: {
-          "User-Agent": "Kilo-Code",
-        },
-      })
-      expect((vectorStoreWithMultiSegment as any).qdrantUrl).toBe("http://localhost:6333/api/v1/qdrant")
-    })
-
-    test("should handle complex URL with multiple segments, multiple trailing slashes, query params, and fragment", () => {
-      const complexUrl = "https://example.com/ollama/api/v1///?key=value#pos"
-      const vectorStoreComplex = new QdrantVectorStore(mockWorkspacePath, complexUrl, mockVectorSize)
-      expect(MockQdrantClientConstructor).toHaveBeenLastCalledWith({
-        host: "example.com",
-        https: true,
-        port: 443,
-        prefix: "/ollama/api/v1",
-        apiKey: undefined,
-        headers: {
-          "User-Agent": "Kilo-Code",
-        },
-      })
-      expect((vectorStoreComplex as any).qdrantUrl).toBe(complexUrl)
-    })
-
-    test("should ignore query parameters and fragments when determining prefix", () => {
-      const vectorStoreWithQueryParams = new QdrantVectorStore(
-        mockWorkspacePath,
-        "http://localhost:6333/api/path?key=value#fragment",
-        mockVectorSize,
-      )
-      expect(MockQdrantClientConstructor).toHaveBeenLastCalledWith({
-        host: "localhost",
-        https: false,
-        port: 6333,
-        prefix: "/api/path",
-        apiKey: undefined,
-        headers: {
-          "User-Agent": "Kilo-Code",
-        },
-      })
-      expect((vectorStoreWithQueryParams as any).qdrantUrl).toBe("http://localhost:6333/api/path?key=value#fragment")
+      expect(Reflect.get(store, "qdrantUrl")).toBe(row.url)
     })
   })
 
@@ -559,13 +358,17 @@ describe("QdrantVectorStore", () => {
         field_name: "type",
         field_schema: "keyword",
       })
+      expect(mockCreatePayloadIndex).toHaveBeenCalledWith(expectedCollectionName, {
+        field_name: "filePath",
+        field_schema: "keyword",
+      })
       for (let i = 0; i <= 4; i++) {
         expect(mockCreatePayloadIndex).toHaveBeenCalledWith(expectedCollectionName, {
           field_name: `pathSegments.${i}`,
           field_schema: "keyword",
         })
       }
-      expect(mockCreatePayloadIndex).toHaveBeenCalledTimes(6)
+      expect(mockCreatePayloadIndex).toHaveBeenCalledTimes(7)
     })
 
     test("should not create a new collection if one exists with matching vectorSize and return false", async () => {
@@ -598,7 +401,7 @@ describe("QdrantVectorStore", () => {
           field_schema: "keyword",
         })
       }
-      expect(mockCreatePayloadIndex).toHaveBeenCalledTimes(6)
+      expect(mockCreatePayloadIndex).toHaveBeenCalledTimes(7)
     })
 
     test("recreates a populated collection using the legacy payload schema", async () => {
@@ -778,7 +581,7 @@ describe("QdrantVectorStore", () => {
           field_schema: "keyword",
         })
       }
-      expect(mockCreatePayloadIndex).toHaveBeenCalledTimes(6)
+      expect(mockCreatePayloadIndex).toHaveBeenCalledTimes(7)
     })
 
     test("should log warning for non-404 errors but still create collection", async () => {
@@ -793,7 +596,7 @@ describe("QdrantVectorStore", () => {
       expect(mockGetCollection).toHaveBeenCalledTimes(1)
       expect(mockCreateCollection).toHaveBeenCalledTimes(1)
       expect(mockDeleteCollection).not.toHaveBeenCalled()
-      expect(mockCreatePayloadIndex).toHaveBeenCalledTimes(6)
+      expect(mockCreatePayloadIndex).toHaveBeenCalledTimes(7)
     })
 
     test("should re-throw error from createCollection when no collection initially exists", async () => {
@@ -827,8 +630,8 @@ describe("QdrantVectorStore", () => {
       expect(result).toBe(true)
       expect(mockCreateCollection).toHaveBeenCalledTimes(1)
 
-      // All payload index creations should be attempted (6: type + 5 pathSegments)
-      expect(mockCreatePayloadIndex).toHaveBeenCalledTimes(6)
+      // All payload indexes should be attempted: type, exact filePath and 5 pathSegments.
+      expect(mockCreatePayloadIndex).toHaveBeenCalledTimes(7)
     })
 
     test("should throw vectorDimensionMismatch error when deleteCollection fails during recreation", async () => {
@@ -929,7 +732,7 @@ describe("QdrantVectorStore", () => {
       expect(mockGetCollection).toHaveBeenCalledTimes(2)
       expect(mockDeleteCollection).toHaveBeenCalledTimes(1)
       expect(mockCreateCollection).toHaveBeenCalledTimes(1)
-      expect(mockCreatePayloadIndex).toHaveBeenCalledTimes(6)
+      expect(mockCreatePayloadIndex).toHaveBeenCalledTimes(7)
     })
 
     test("should throw error if collection still exists after deletion attempt", async () => {
@@ -1016,7 +819,7 @@ describe("QdrantVectorStore", () => {
           on_disk: true,
         },
       })
-      expect(mockCreatePayloadIndex).toHaveBeenCalledTimes(6)
+      expect(mockCreatePayloadIndex).toHaveBeenCalledTimes(7)
     })
 
     test("should provide detailed error context for different failure scenarios", async () => {
@@ -1613,33 +1416,47 @@ describe("QdrantVectorStore", () => {
     })
 
     describe("current directory path handling", () => {
-      test("should not apply filter when directoryPrefix is '.'", async () => {
-        const queryVector = [0.1, 0.2, 0.3]
-        const directoryPrefix = "."
-        const mockQdrantResults = {
-          points: [
-            {
-              id: "test-id-1",
-              score: 0.85,
-              payload: {
-                filePath: "src/test.ts",
-                fileHash: "test-hash",
-                codeChunk: "test code",
-                startLine: 1,
-                endLine: 5,
-                pathSegments: { "0": "src", "1": "test.ts" },
+      test.each([
+        { name: "dot", prefix: ".", populated: true, must: undefined },
+        { name: "POSIX", prefix: "./", populated: false, must: undefined },
+        { name: "empty", prefix: "", populated: false, must: undefined },
+        { name: "Windows", prefix: ".\\", populated: false, must: undefined },
+        { name: "trailing slashes", prefix: ".///", populated: false, must: undefined },
+        {
+          name: "relative",
+          prefix: "./src",
+          populated: false,
+          must: [{ key: "pathSegments.0", match: { value: "src" } }],
+        },
+        {
+          name: "directory",
+          prefix: "src",
+          populated: false,
+          must: [{ key: "pathSegments.0", match: { value: "src" } }],
+        },
+      ])("normalizes $name directory prefix", async (row) => {
+        const vector = [0.1, 0.2, 0.3]
+        const points = row.populated
+          ? [
+              {
+                id: "test-id-1",
+                score: 0.85,
+                payload: {
+                  filePath: "src/test.ts",
+                  fileHash: "test-hash",
+                  codeChunk: "test code",
+                  startLine: 1,
+                  endLine: 5,
+                  pathSegments: { "0": "src", "1": "test.ts" },
+                },
               },
-            },
-          ],
-        }
-
-        mockQuery.mockResolvedValue(mockQdrantResults)
-
-        const results = await vectorStore.search(queryVector, directoryPrefix)
-
-        const callArgs7 = mockQuery.mock.calls[0][1]
-        expect(callArgs7).toMatchObject({
-          query: queryVector,
+            ]
+          : []
+        mockQuery.mockResolvedValue({ points })
+        const results = await vectorStore.search(vector, row.prefix)
+        const call = mockQuery.mock.calls.at(-1)?.at(1)
+        expect(call).toMatchObject({
+          query: vector,
           score_threshold: DEFAULT_SEARCH_MIN_SCORE,
           limit: DEFAULT_MAX_SEARCH_RESULTS,
           params: {
@@ -1650,185 +1467,11 @@ describe("QdrantVectorStore", () => {
             include: ["filePath", "fileHash", "codeChunk", "startLine", "endLine", "pathSegments"],
           },
         })
-        expect(callArgs7.filter).toEqual({
+        expect(call?.filter).toEqual({
+          ...(row.must ? { must: row.must } : {}),
           must_not: [{ key: "type", match: { value: "metadata" } }],
         })
-
-        expect(results).toEqual(mockQdrantResults.points)
-      })
-
-      test("should not apply filter when directoryPrefix is './'", async () => {
-        const queryVector = [0.1, 0.2, 0.3]
-        const directoryPrefix = "./"
-        const mockQdrantResults = { points: [] }
-
-        mockQuery.mockResolvedValue(mockQdrantResults)
-
-        await vectorStore.search(queryVector, directoryPrefix)
-
-        const callArgs6 = mockQuery.mock.calls[0][1]
-        expect(callArgs6).toMatchObject({
-          query: queryVector,
-          score_threshold: DEFAULT_SEARCH_MIN_SCORE,
-          limit: DEFAULT_MAX_SEARCH_RESULTS,
-          params: {
-            hnsw_ef: 128,
-            exact: false,
-          },
-          with_payload: {
-            include: ["filePath", "fileHash", "codeChunk", "startLine", "endLine", "pathSegments"],
-          },
-        })
-        expect(callArgs6.filter).toEqual({
-          must_not: [{ key: "type", match: { value: "metadata" } }],
-        })
-      })
-
-      test("should not apply filter when directoryPrefix is empty string", async () => {
-        const queryVector = [0.1, 0.2, 0.3]
-        const directoryPrefix = ""
-        const mockQdrantResults = { points: [] }
-
-        mockQuery.mockResolvedValue(mockQdrantResults)
-
-        await vectorStore.search(queryVector, directoryPrefix)
-
-        const callArgs8 = mockQuery.mock.calls[0][1]
-        expect(callArgs8).toMatchObject({
-          query: queryVector,
-          score_threshold: DEFAULT_SEARCH_MIN_SCORE,
-          limit: DEFAULT_MAX_SEARCH_RESULTS,
-          params: {
-            hnsw_ef: 128,
-            exact: false,
-          },
-          with_payload: {
-            include: ["filePath", "fileHash", "codeChunk", "startLine", "endLine", "pathSegments"],
-          },
-        })
-        expect(callArgs8.filter).toEqual({
-          must_not: [{ key: "type", match: { value: "metadata" } }],
-        })
-      })
-
-      test("should not apply filter when directoryPrefix is '.\\' (Windows style)", async () => {
-        const queryVector = [0.1, 0.2, 0.3]
-        const directoryPrefix = ".\\"
-        const mockQdrantResults = { points: [] }
-
-        mockQuery.mockResolvedValue(mockQdrantResults)
-
-        await vectorStore.search(queryVector, directoryPrefix)
-
-        const callArgs9 = mockQuery.mock.calls[0][1]
-        expect(callArgs9).toMatchObject({
-          query: queryVector,
-          score_threshold: DEFAULT_SEARCH_MIN_SCORE,
-          limit: DEFAULT_MAX_SEARCH_RESULTS,
-          params: {
-            hnsw_ef: 128,
-            exact: false,
-          },
-          with_payload: {
-            include: ["filePath", "fileHash", "codeChunk", "startLine", "endLine", "pathSegments"],
-          },
-        })
-        expect(callArgs9.filter).toEqual({
-          must_not: [{ key: "type", match: { value: "metadata" } }],
-        })
-      })
-
-      test("should not apply filter when directoryPrefix has trailing slashes", async () => {
-        const queryVector = [0.1, 0.2, 0.3]
-        const directoryPrefix = ".///"
-        const mockQdrantResults = { points: [] }
-
-        mockQuery.mockResolvedValue(mockQdrantResults)
-
-        await vectorStore.search(queryVector, directoryPrefix)
-
-        const callArgs10 = mockQuery.mock.calls[0][1]
-        expect(callArgs10).toMatchObject({
-          query: queryVector,
-          score_threshold: DEFAULT_SEARCH_MIN_SCORE,
-          limit: DEFAULT_MAX_SEARCH_RESULTS,
-          params: {
-            hnsw_ef: 128,
-            exact: false,
-          },
-          with_payload: {
-            include: ["filePath", "fileHash", "codeChunk", "startLine", "endLine", "pathSegments"],
-          },
-        })
-        expect(callArgs10.filter).toEqual({
-          must_not: [{ key: "type", match: { value: "metadata" } }],
-        })
-      })
-
-      test("should still apply filter for relative paths like './src'", async () => {
-        const queryVector = [0.1, 0.2, 0.3]
-        const directoryPrefix = "./src"
-        const mockQdrantResults = { points: [] }
-
-        mockQuery.mockResolvedValue(mockQdrantResults)
-
-        await vectorStore.search(queryVector, directoryPrefix)
-
-        const callArgs11 = mockQuery.mock.calls[0][1]
-        expect(callArgs11).toMatchObject({
-          query: queryVector,
-          score_threshold: DEFAULT_SEARCH_MIN_SCORE,
-          limit: DEFAULT_MAX_SEARCH_RESULTS,
-          params: {
-            hnsw_ef: 128,
-            exact: false,
-          },
-          with_payload: {
-            include: ["filePath", "fileHash", "codeChunk", "startLine", "endLine", "pathSegments"],
-          },
-        })
-        expect(callArgs11.filter).toEqual({
-          must: [
-            {
-              key: "pathSegments.0",
-              match: { value: "src" },
-            },
-          ],
-          must_not: [{ key: "type", match: { value: "metadata" } }],
-        })
-      })
-
-      test("should still apply filter for regular directory paths", async () => {
-        const queryVector = [0.1, 0.2, 0.3]
-        const directoryPrefix = "src"
-        const mockQdrantResults = { points: [] }
-
-        mockQuery.mockResolvedValue(mockQdrantResults)
-
-        await vectorStore.search(queryVector, directoryPrefix)
-
-        const callArgs12 = mockQuery.mock.calls[0][1]
-        expect(callArgs12).toMatchObject({
-          query: queryVector,
-          score_threshold: DEFAULT_SEARCH_MIN_SCORE,
-          limit: DEFAULT_MAX_SEARCH_RESULTS,
-          params: {
-            hnsw_ef: 128,
-            exact: false,
-          },
-          with_payload: {
-            include: ["filePath", "fileHash", "codeChunk", "startLine", "endLine", "pathSegments"],
-          },
-        })
-        expect(callArgs12.filter).toEqual({
-          must: [
-            {
-              key: "pathSegments.0",
-              match: { value: "src" },
-            },
-          ],
-          must_not: [{ key: "type", match: { value: "metadata" } }],
-        })
+        expect(results).toEqual(points)
       })
     })
   })

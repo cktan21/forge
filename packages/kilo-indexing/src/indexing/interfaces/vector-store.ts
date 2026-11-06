@@ -7,7 +7,15 @@ export type PointStruct = {
   payload: Record<string, any>
 }
 
+export type VectorFilter = { paths: readonly string[]; ids: readonly (string | number)[] }
+
 export interface IVectorStore {
+  /**
+   * Unranked path-filtered rows, without silently truncating below limit.
+   * Implementations must also enforce search(filter) before ranking/limit.
+   * Callers request cap + 1 and reject overflow, never use a partial mask.
+   */
+  candidates?(paths: readonly string[], limit: number): Promise<VectorStoreSearchResult[]>
   /**
    * Opens an existing complete store without mutating it.
    */
@@ -39,6 +47,7 @@ export interface IVectorStore {
     directoryPrefix?: string,
     minScore?: number,
     maxResults?: number,
+    filter?: VectorFilter,
   ): Promise<VectorStoreSearchResult[]>
 
   /**

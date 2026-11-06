@@ -137,11 +137,10 @@ export function createSseClient<TData = unknown>({
         let buffer = ""
 
         const abortHandler = () => {
-          try {
-            reader.cancel()
-          } catch {
-            // noop
-          }
+          // The response may already be errored when cancellation reaches the decoder.
+          void reader.cancel(signal.reason).catch((error: unknown) => {
+            if (error !== signal.reason) onSseError?.(error)
+          })
         }
 
         signal.addEventListener("abort", abortHandler)

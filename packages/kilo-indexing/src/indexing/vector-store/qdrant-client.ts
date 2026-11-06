@@ -1,7 +1,7 @@
 import { QdrantClient, type Schemas } from "@qdrant/js-client-rest"
 import { createHash } from "crypto"
 import * as path from "path"
-import type { IVectorStore } from "../interfaces/vector-store"
+import type { IVectorStore, VectorFilter } from "../interfaces/vector-store"
 import type { Payload, VectorStoreSearchResult } from "../interfaces"
 import { DEFAULT_MAX_SEARCH_RESULTS, DEFAULT_SEARCH_MIN_SCORE } from "../constants"
 import { Log } from "../../util/log"
@@ -395,18 +395,18 @@ export class QdrantVectorStore implements IVectorStore {
    * Creates payload indexes for the collection, handling errors gracefully.
    */
   private async _createPayloadIndexes(): Promise<void> {
-    // Create index for the 'type' field to enable metadata filtering
-    try {
-      await this.client.createPayloadIndex(this.collectionName, {
-        field_name: "type",
-        field_schema: "keyword",
-      })
-    } catch (indexError: any) {
-      const errorMessage = (indexError?.message || "").toLowerCase()
-      if (!errorMessage.includes("already exists")) {
-        log.warn(`Could not create payload index for type on ${this.collectionName}`, {
-          details: indexError?.message || indexError,
+    // Exact path eligibility and metadata filtering need keyword indexes.
+    for (const field of ["type", "filePath"]) {
+      try {
+        await this.client.createPayloadIndex(this.collectionName, {
+          field_name: field,
+          field_schema: "keyword",
         })
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        if (!message.toLowerCase().includes("already exists")) {
+          log.warn(`Could not create payload index for ${field} on ${this.collectionName}`, { details: message })
+        }
       }
     }
 
@@ -490,12 +490,33 @@ export class QdrantVectorStore implements IVectorStore {
    * @param maxResults Optional maximum number of results to return
    * @returns Promise resolving to search results
    */
+  async candidates(paths: readonly string[], limit: number): Promise<VectorStoreSearchResult[]> {
+    if (!paths.length) return []
+    const rows: VectorStoreSearchResult[] = []
+    let offset: Schemas["ScrollRequest"]["offset"]
+    do {
+      const result = await this.client.scroll(this.collectionName, {
+        filter: { must: [{ key: "filePath", match: { any: [...paths] } }], must_not: [{ key: "type", match: { value: "metadata" } }] },
+        limit: Math.min(256, limit - rows.length),
+        offset,
+        with_payload: { include: ["filePath", "fileHash", "codeChunk", "startLine", "endLine"] },
+        with_vector: false,
+      })
+      rows.push(...result.points.map((row) => ({ id: row.id, score: 0, payload: this.isPayloadValid(row.payload) ? row.payload : null })))
+      offset = result.next_page_offset ?? undefined
+      if (offset != null && !result.points.length) throw new Error("Cannot establish a complete semantic eligibility mask from an empty Qdrant page")
+    } while (offset != null && rows.length < limit)
+    return rows
+  }
+
   async search(
     queryVector: number[],
     directoryPrefix?: string,
     minScore?: number,
     maxResults?: number,
+    mask?: VectorFilter,
   ): Promise<VectorStoreSearchResult[]> {
+    if (mask && (!mask.paths.length || !mask.ids.length)) return []
     try {
       let filter:
         | {
@@ -533,9 +554,16 @@ export class QdrantVectorStore implements IVectorStore {
         must_not: [{ key: "type", match: { value: "metadata" } }],
       }
 
-      const mergedFilter = filter
+      const mergedFilter: Schemas["Filter"] = filter
         ? { ...filter, must_not: [...(filter.must_not || []), ...metadataExclusion.must_not] }
         : metadataExclusion
+      if (mask) {
+        mergedFilter.must = [
+          ...(filter?.must ?? []),
+          { key: "filePath", match: { any: [...mask.paths] } },
+          { has_id: [...mask.ids] },
+        ]
+      }
 
       const searchRequest = {
         query: queryVector,
@@ -552,6 +580,9 @@ export class QdrantVectorStore implements IVectorStore {
       }
 
       const operationResult = await this.client.query(this.collectionName, searchRequest)
+      if (mask && operationResult.points.some((row) => !this.isPayloadValid(row.payload))) {
+        throw new Error("Semantic eligibility changed during search: malformed Qdrant ranked payload")
+      }
       const filteredPoints = operationResult.points.filter((p: any) => this.isPayloadValid(p.payload))
 
       return filteredPoints as VectorStoreSearchResult[]

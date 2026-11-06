@@ -124,6 +124,83 @@ import type {
   FindSymbolsResponses,
   FindTextErrors,
   FindTextResponses,
+  ForgeBaselineErrors,
+  ForgeBaselineResponses,
+  ForgeCancelErrors,
+  ForgeCancelResponses,
+  ForgeCollectionErrors,
+  ForgeCollectionResponses,
+  ForgeConfigureErrors,
+  ForgeConfigureResponses,
+  ForgeDatabaseErrors,
+  ForgeDatabaseResponses,
+  ForgeDecideErrors,
+  ForgeDecideResponses,
+  ForgeEmbeddingApproveErrors,
+  ForgeEmbeddingApproveResponses,
+  ForgeEmbeddingCancelErrors,
+  ForgeEmbeddingCancelResponses,
+  ForgeEmbeddingCoverageErrors,
+  ForgeEmbeddingCoverageResponses,
+  ForgeEmbeddingIndexErrors,
+  ForgeEmbeddingIndexResponses,
+  ForgeEmbeddingJobsErrors,
+  ForgeEmbeddingJobsResponses,
+  ForgeEmbeddingPruneErrors,
+  ForgeEmbeddingPruneResponses,
+  ForgeEmbeddingRetentionErrors,
+  ForgeEmbeddingRetentionResponses,
+  ForgeEmbeddingReviewErrors,
+  ForgeEmbeddingReviewResponses,
+  ForgeEmbeddingRevokeErrors,
+  ForgeEmbeddingRevokeResponses,
+  ForgeEmbeddingStartErrors,
+  ForgeEmbeddingStartResponses,
+  ForgeEmbeddingUsageErrors,
+  ForgeEmbeddingUsageResponses,
+  ForgeEnhanceErrors,
+  ForgeEnhanceResponses,
+  ForgeEnhanceStreamErrors,
+  ForgeEnhanceStreamResponse,
+  ForgeEnhanceStreamResponses,
+  ForgeGraphErrors,
+  ForgeGraphResponses,
+  ForgeIdeasErrors,
+  ForgeIdeasResponses,
+  ForgeImportsErrors,
+  ForgeImportsResponses,
+  ForgeIndexErrors,
+  ForgeIndexResponses,
+  ForgeKnowledgeErrors,
+  ForgeKnowledgeResponses,
+  ForgeOpportunitiesErrors,
+  ForgeOpportunitiesResponses,
+  ForgeOverviewErrors,
+  ForgeOverviewResponses,
+  ForgePolicyErrors,
+  ForgePolicyResponses,
+  ForgePreviewErrors,
+  ForgePreviewResponses,
+  ForgeRefreshErrors,
+  ForgeRefreshResponses,
+  ForgeRegisterErrors,
+  ForgeRegisterResponses,
+  ForgeRequestErrors,
+  ForgeRequestObservationErrors,
+  ForgeRequestObservationResponses,
+  ForgeRequestResponses,
+  ForgeRequestsErrors,
+  ForgeRequestsResponses,
+  ForgeSearchErrors,
+  ForgeSearchResponses,
+  ForgeSourceErrors,
+  ForgeSourceResponses,
+  ForgeStatusErrors,
+  ForgeStatusResponses,
+  ForgeValidateErrors,
+  ForgeValidateResponses,
+  ForgeViewErrors,
+  ForgeViewResponses,
   FormatterStatusErrors,
   FormatterStatusResponses,
   GlobalConfigGetErrors,
@@ -6649,6 +6726,1707 @@ export class EnhancePrompt extends HeyApiClient {
   }
 }
 
+export class Forge extends HeyApiClient {
+  /**
+   * Inspect Forge knowledge and latest session context without a model call
+   */
+  public status<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      session?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "session" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ForgeStatusResponses, ForgeStatusErrors, ThrowOnError>({
+      url: "/forge/status",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Search registered knowledge pages and inspect its sharing destination
+   */
+  public knowledge<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      session?: string
+      query?: string
+      limit?: string
+      offset?: string
+      generation?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "session" },
+            { in: "query", key: "query" },
+            { in: "query", key: "limit" },
+            { in: "query", key: "offset" },
+            { in: "query", key: "generation" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ForgeKnowledgeResponses, ForgeKnowledgeErrors, ThrowOnError>({
+      url: "/forge/knowledge",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Register documents for explicit indexing approval
+   */
+  public register<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      label: string
+      kind: "file" | "folder" | "text" | "url" | "upload"
+      location: string
+      session?: string
+      include?: Array<string>
+      exclude?: Array<string>
+      watch?: boolean
+      content?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "label" },
+            { in: "body", key: "kind" },
+            { in: "body", key: "location" },
+            { in: "body", key: "session" },
+            { in: "body", key: "include" },
+            { in: "body", key: "exclude" },
+            { in: "body", key: "watch" },
+            { in: "body", key: "content" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ForgeRegisterResponses, ForgeRegisterErrors, ThrowOnError>({
+      url: "/forge/knowledge",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Inspect retained import runs and paginated file outcomes
+   */
+  public imports<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+      session?: string
+      run?: string
+      limit?: string
+      offset?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "session" },
+            { in: "query", key: "run" },
+            { in: "query", key: "limit" },
+            { in: "query", key: "offset" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ForgeImportsResponses, ForgeImportsErrors, ThrowOnError>({
+      url: "/forge/knowledge/{id}/imports",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Review the configured collection embedding destination without sending text
+   */
+  public embeddingReview<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+      session?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "session" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      ForgeEmbeddingReviewResponses,
+      ForgeEmbeddingReviewErrors,
+      ThrowOnError
+    >({
+      url: "/forge/knowledge/{id}/embeddings",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Explicitly inspect stored section coverage for the approved destination without embedding; stale includes unavailable originals, excluded sections are separate, and observation is not a freshness lease
+   */
+  public embeddingCoverage<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+      session?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "session" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      ForgeEmbeddingCoverageResponses,
+      ForgeEmbeddingCoverageErrors,
+      ThrowOnError
+    >({
+      url: "/forge/knowledge/{id}/embeddings/coverage",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Approve a reviewed embedding destination without starting indexing
+   */
+  public embeddingApprove<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+      session?: string
+      revision: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "session" },
+            { in: "body", key: "revision" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ForgeEmbeddingApproveResponses,
+      ForgeEmbeddingApproveErrors,
+      ThrowOnError
+    >({
+      url: "/forge/knowledge/{id}/embeddings/approve",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Revoke collection embedding consent without requiring provider availability
+   */
+  public embeddingRevoke<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+      session?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "session" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ForgeEmbeddingRevokeResponses,
+      ForgeEmbeddingRevokeErrors,
+      ThrowOnError
+    >({
+      url: "/forge/knowledge/{id}/embeddings/revoke",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Index approved collection sections and wait for publication; disconnect cancels pending work
+   */
+  public embeddingIndex<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+      session?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "session" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ForgeEmbeddingIndexResponses, ForgeEmbeddingIndexErrors, ThrowOnError>(
+      {
+        url: "/forge/knowledge/{id}/embeddings/index",
+        ...options,
+        ...params,
+        headers: {
+          "Content-Type": "application/json",
+          ...options?.headers,
+          ...params.headers,
+        },
+      },
+    )
+  }
+
+  /**
+   * Read the latest 16 embedding jobs in the exact session scope without sending text
+   */
+  public embeddingJobs<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+      session?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "session" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ForgeEmbeddingJobsResponses, ForgeEmbeddingJobsErrors, ThrowOnError>({
+      url: "/forge/knowledge/{id}/embeddings/jobs",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Start or join an approved embedding job; admitted jobs survive client disconnect
+   */
+  public embeddingStart<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+      session?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "session" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ForgeEmbeddingStartResponses, ForgeEmbeddingStartErrors, ThrowOnError>(
+      {
+        url: "/forge/knowledge/{id}/embeddings/jobs",
+        ...options,
+        ...params,
+        headers: {
+          "Content-Type": "application/json",
+          ...options?.headers,
+          ...params.headers,
+        },
+      },
+    )
+  }
+
+  /**
+   * Read permission-checked embedding attempts in the exact session, newest admission first; live cursor pages survive job pruning but not privacy purge, missing reports remain unknown, and these are not billing totals
+   */
+  public embeddingUsage<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      session?: string
+      after?: string
+      limit?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "session" },
+            { in: "query", key: "after" },
+            { in: "query", key: "limit" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ForgeEmbeddingUsageResponses, ForgeEmbeddingUsageErrors, ThrowOnError>({
+      url: "/forge/embeddings/usage",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Preview up to 100 oldest completed attempts before a Unix-millisecond cutoff while preserving the newest keep admissions; read-only, exact-session and permission checked
+   */
+  public embeddingRetention<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      session?: string
+      before: number
+      keep: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "session" },
+            { in: "body", key: "before" },
+            { in: "body", key: "keep" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ForgeEmbeddingRetentionResponses,
+      ForgeEmbeddingRetentionErrors,
+      ThrowOnError
+    >({
+      url: "/forge/embeddings/retention",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Delete only the reviewed bounded completed-attempt batch; reject changed previews, preserve pending attempts, and never delete originals, jobs or external exports
+   */
+  public embeddingPrune<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      session?: string
+      before: number
+      keep: number
+      revision: string
+      confirmation: "DELETE"
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "session" },
+            { in: "body", key: "before" },
+            { in: "body", key: "keep" },
+            { in: "body", key: "revision" },
+            { in: "body", key: "confirmation" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ForgeEmbeddingPruneResponses, ForgeEmbeddingPruneErrors, ThrowOnError>(
+      {
+        url: "/forge/embeddings/prune",
+        ...options,
+        ...params,
+        headers: {
+          "Content-Type": "application/json",
+          ...options?.headers,
+          ...params.headers,
+        },
+      },
+    )
+  }
+
+  /**
+   * Request cancellation of an exact scoped job; missing active jobs are a no-op and admitted writes may complete
+   */
+  public embeddingCancel<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      job: string
+      directory?: string
+      workspace?: string
+      session?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "path", key: "job" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "session" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ForgeEmbeddingCancelResponses,
+      ForgeEmbeddingCancelErrors,
+      ThrowOnError
+    >({
+      url: "/forge/knowledge/{id}/embeddings/jobs/{job}/cancel",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Read a bounded permission-checked ingestion preview without registration
+   */
+  public preview<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      label: string
+      kind: "file" | "folder" | "text" | "url" | "upload"
+      location: string
+      session?: string
+      include?: Array<string>
+      exclude?: Array<string>
+      watch?: boolean
+      content?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "label" },
+            { in: "body", key: "kind" },
+            { in: "body", key: "location" },
+            { in: "body", key: "session" },
+            { in: "body", key: "include" },
+            { in: "body", key: "exclude" },
+            { in: "body", key: "watch" },
+            { in: "body", key: "content" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ForgePreviewResponses, ForgePreviewErrors, ThrowOnError>({
+      url: "/forge/knowledge/preview",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Approve, index, pause, remove, or purge knowledge
+   */
+  public collection<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+      action: "approve" | "index" | "pause" | "remove" | "purge"
+      session?: string
+      providers?: Array<string>
+      grants?: {
+        [key: string]: string
+      }
+      confirmation?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "action" },
+            { in: "body", key: "session" },
+            { in: "body", key: "providers" },
+            { in: "body", key: "grants" },
+            { in: "body", key: "confirmation" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).put<ForgeCollectionResponses, ForgeCollectionErrors, ThrowOnError>({
+      url: "/forge/knowledge/{id}",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Read shared context pins and exclusions
+   */
+  public policy<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      session?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "session" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ForgePolicyResponses, ForgePolicyErrors, ThrowOnError>({
+      url: "/forge/policy",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Update shared context pins and exclusions
+   */
+  public configure<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      version: string
+      session: string
+      pin: Array<string>
+      exclude: Array<string>
+      versions?: {
+        [key: string]: string
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "version" },
+            { in: "body", key: "session" },
+            { in: "body", key: "pin" },
+            { in: "body", key: "exclude" },
+            { in: "body", key: "versions" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).put<ForgeConfigureResponses, ForgeConfigureErrors, ThrowOnError>({
+      url: "/forge/policy",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Start background repository indexing
+   */
+  public index<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      body?: {
+        [key: string]: unknown
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "body", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ForgeIndexResponses, ForgeIndexErrors, ThrowOnError>({
+      url: "/forge/index",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Cancel background repository indexing
+   */
+  public cancel<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      body?: {
+        [key: string]: unknown
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "body", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ForgeCancelResponses, ForgeCancelErrors, ThrowOnError>({
+      url: "/forge/index/cancel",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Page through published source categories or a registered document's original sections
+   */
+  public view<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      session?: string
+      category?: string
+      focus?: string
+      document?: string
+      query?: string
+      limit?: string
+      offset?: string
+      generation?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "session" },
+            { in: "query", key: "category" },
+            { in: "query", key: "focus" },
+            { in: "query", key: "document" },
+            { in: "query", key: "query" },
+            { in: "query", key: "limit" },
+            { in: "query", key: "offset" },
+            { in: "query", key: "generation" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ForgeViewResponses, ForgeViewErrors, ThrowOnError>({
+      url: "/forge/view",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Measure the unchanged generic enhancer
+   */
+  public baseline<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      text: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "text" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ForgeBaselineResponses, ForgeBaselineErrors, ThrowOnError>({
+      url: "/forge/baseline",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Refresh Forge repository understanding
+   */
+  public refresh<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      body?: {
+        [key: string]: unknown
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "body", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ForgeRefreshResponses, ForgeRefreshErrors, ThrowOnError>({
+      url: "/forge/refresh",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Read a bounded source graph
+   */
+  public graph<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      focus?: string
+      query?: string
+      limit?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "focus" },
+            { in: "query", key: "query" },
+            { in: "query", key: "limit" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ForgeGraphResponses, ForgeGraphErrors, ThrowOnError>({
+      url: "/forge/graph",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Inspect current source evidence
+   */
+  public source<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+      session?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "session" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ForgeSourceResponses, ForgeSourceErrors, ThrowOnError>({
+      url: "/forge/source/{id}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Explain this repository with citations
+   */
+  public overview<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      body?: {
+        [key: string]: unknown
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "body", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ForgeOverviewResponses, ForgeOverviewErrors, ThrowOnError>({
+      url: "/forge/overview",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Find evidence-backed opportunities
+   */
+  public ideas<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      goal: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "goal" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ForgeIdeasResponses, ForgeIdeasErrors, ThrowOnError>({
+      url: "/forge/ideas",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * List repository opportunities
+   */
+  public opportunities<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ForgeOpportunitiesResponses, ForgeOpportunitiesErrors, ThrowOnError>({
+      url: "/forge/opportunities",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Update opportunity status
+   */
+  public decide<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+      status: "proposed" | "confirmed" | "rejected" | "superseded" | "stale"
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "status" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).put<ForgeDecideResponses, ForgeDecideErrors, ThrowOnError>({
+      url: "/forge/opportunity/{id}",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Prepare an evidence-grounded task
+   */
+  public enhance<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      text: string
+      answers?: string
+      feedback?: string
+      revision?: string
+      edits?: Array<{
+        before: string
+        after: string
+      }>
+      model?: {
+        providerID: string
+        modelID: string
+      }
+      retry?: Array<{
+        path: Array<
+          | "summary"
+          | "objective"
+          | "reuse"
+          | "inspect"
+          | "changes"
+          | "constraints"
+          | "hypotheses"
+          | "acceptance"
+          | "verification"
+          | "evidence"
+          | "questions"
+          | "kind"
+          | "question"
+          | "impact"
+          | "options"
+          | "statement"
+          | "reason"
+          | "action"
+          | "basis"
+          | number
+        >
+        expected: "string" | "array" | "object" | "hypothesis" | "decision" | "valid value"
+        actual: "missing" | "null" | "string" | "number" | "boolean" | "array" | "object" | "unknown"
+      }>
+      session?: string
+      pin?: Array<string>
+      exclude?: Array<string>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "text" },
+            { in: "body", key: "answers" },
+            { in: "body", key: "feedback" },
+            { in: "body", key: "revision" },
+            { in: "body", key: "edits" },
+            { in: "body", key: "model" },
+            { in: "body", key: "retry" },
+            { in: "body", key: "session" },
+            { in: "body", key: "pin" },
+            { in: "body", key: "exclude" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ForgeEnhanceResponses, ForgeEnhanceErrors, ThrowOnError>({
+      url: "/forge/enhance",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Stream private enhancement progress, public explanations, and the completed proposal
+   */
+  public enhanceStream<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      text: string
+      answers?: string
+      feedback?: string
+      revision?: string
+      edits?: Array<{
+        before: string
+        after: string
+      }>
+      model?: {
+        providerID: string
+        modelID: string
+      }
+      retry?: Array<{
+        path: Array<
+          | "summary"
+          | "objective"
+          | "reuse"
+          | "inspect"
+          | "changes"
+          | "constraints"
+          | "hypotheses"
+          | "acceptance"
+          | "verification"
+          | "evidence"
+          | "questions"
+          | "kind"
+          | "question"
+          | "impact"
+          | "options"
+          | "statement"
+          | "reason"
+          | "action"
+          | "basis"
+          | number
+        >
+        expected: "string" | "array" | "object" | "hypothesis" | "decision" | "valid value"
+        actual: "missing" | "null" | "string" | "number" | "boolean" | "array" | "object" | "unknown"
+      }>
+      session?: string
+      pin?: Array<string>
+      exclude?: Array<string>
+    },
+    options?: Options<never, ThrowOnError, ForgeEnhanceStreamResponse>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "text" },
+            { in: "body", key: "answers" },
+            { in: "body", key: "feedback" },
+            { in: "body", key: "revision" },
+            { in: "body", key: "edits" },
+            { in: "body", key: "model" },
+            { in: "body", key: "retry" },
+            { in: "body", key: "session" },
+            { in: "body", key: "pin" },
+            { in: "body", key: "exclude" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).sse.post<
+      ForgeEnhanceStreamResponses,
+      ForgeEnhanceStreamErrors,
+      ThrowOnError
+    >({
+      url: "/forge/enhance/stream",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Recheck prepared source evidence
+   */
+  public validate<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      id: string
+      original: string
+      generation: string
+      status: "ready" | "needs_clarification"
+      task: {
+        objective: string
+        reuse: Array<string>
+        inspect: Array<string>
+        changes: Array<string>
+        constraints: Array<string>
+        hypotheses: Array<string>
+        questions: Array<string>
+        acceptance: Array<string>
+        verification: Array<string>
+        evidence: Array<string>
+      }
+      context: {
+        matches: Array<{
+          source: {
+            id: string
+            kind:
+              | "agent"
+              | "directory"
+              | "code"
+              | "symbol"
+              | "test"
+              | "document"
+              | "dependency"
+              | "schema"
+              | "configuration"
+              | "instruction"
+              | "goal"
+              | "memory"
+              | "history"
+              | "tool"
+              | "attachment"
+              | "summary"
+              | "opportunity"
+            label: string
+            uri: string
+            hash: string
+            text: string
+            start: number
+            end: number
+            observed: number
+            method: string
+            status: "current" | "stale" | "unavailable"
+            inferred: boolean
+            evidence: Array<string>
+            detail: {
+              [key: string]: string
+            }
+          }
+          score: number
+          reason: string
+        }>
+        text: string
+        tokens: number
+        budget: number
+        estimator: string
+        omitted: Array<string>
+        reasons?: {
+          [key: string]: string
+        }
+        provider?: string
+        destination?: string
+        policy?: string
+        audit?: {
+          candidates: Array<{
+            source: string
+            hash: string
+            retrieval: string
+            score: number
+            state: "selected" | "omitted"
+            reason: string
+            channels?: Array<{
+              name:
+                | "keyword"
+                | "semantic"
+                | "collection-semantic"
+                | "domains"
+                | "memory"
+                | "relationships"
+                | "public-docs"
+                | "dependency-docs"
+              rank: number
+              score: number
+              reason: string
+            }>
+          }>
+          channels?: Array<{
+            name:
+              | "keyword"
+              | "semantic"
+              | "collection-semantic"
+              | "domains"
+              | "memory"
+              | "relationships"
+              | "public-docs"
+              | "dependency-docs"
+            state: "completed" | "fallback" | "disabled" | "unavailable" | "failed"
+            candidates: number
+            withheld: number
+            readiness?: {
+              state:
+                | "uninitialized"
+                | "initializing"
+                | "disabled"
+                | "indexing"
+                | "ready"
+                | "paused"
+                | "error"
+                | "unknown"
+              searchable?: boolean
+            }
+          }>
+          total: number
+          unrecorded: number
+          withheld: number
+          budget: number
+          tokens: number
+          estimator: string
+          policy?: string
+          provider?: string
+          destination?: string
+        }
+      }
+      prompt: string
+      usage: {
+        input: number
+        output: number
+        cached: number
+        milliseconds: number
+        model: string
+        measured: boolean
+      }
+      warnings: Array<string>
+      questions?: Array<{
+        id: string
+        question: string
+        impact: string
+        options: Array<string>
+        optional: boolean
+      }>
+      session?: string
+      summary?: string
+      activity?: {
+        entries: Array<{
+          action: string
+          path?: string
+          detail: string
+        }>
+        counts?: {
+          [key: string]: number
+        }
+        total: number
+      }
+      model?: {
+        providerID: string
+        modelID: string
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "id" },
+            { in: "body", key: "original" },
+            { in: "body", key: "generation" },
+            { in: "body", key: "status" },
+            { in: "body", key: "task" },
+            { in: "body", key: "context" },
+            { in: "body", key: "prompt" },
+            { in: "body", key: "usage" },
+            { in: "body", key: "warnings" },
+            { in: "body", key: "questions" },
+            { in: "body", key: "session" },
+            { in: "body", key: "summary" },
+            { in: "body", key: "activity" },
+            { in: "body", key: "model" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ForgeValidateResponses, ForgeValidateErrors, ThrowOnError>({
+      url: "/forge/validate",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Search repository evidence
+   */
+  public search<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      session?: string
+      q: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "session" },
+            { in: "query", key: "q" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ForgeSearchResponses, ForgeSearchErrors, ThrowOnError>({
+      url: "/forge/search",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Inspect session-scoped local context provenance
+   */
+  public requests<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      session?: string
+      purpose?: string
+      offset?: string
+      limit?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "session" },
+            { in: "query", key: "purpose" },
+            { in: "query", key: "offset" },
+            { in: "query", key: "limit" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ForgeRequestsResponses, ForgeRequestsErrors, ThrowOnError>({
+      url: "/forge/requests",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Inspect workspace request-history revision, admission count and known deletion without a model call; earlier coverage remains unknown
+   */
+  public requestObservation<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      ForgeRequestObservationResponses,
+      ForgeRequestObservationErrors,
+      ThrowOnError
+    >({
+      url: "/forge/requests-observation",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Read a retained context capture by identity in its exact session scope
+   */
+  public request<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+      session?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "session" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ForgeRequestResponses, ForgeRequestErrors, ThrowOnError>({
+      url: "/forge/requests/{id}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Read configured database metadata
+   */
+  public database<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      body?: {
+        [key: string]: unknown
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "body", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ForgeDatabaseResponses, ForgeDatabaseErrors, ThrowOnError>({
+      url: "/forge/database",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
 export class Indexing extends HeyApiClient {
   /**
    * Get indexing status
@@ -12209,6 +13987,11 @@ export class KiloClient extends HeyApiClient {
   private _enhancePrompt?: EnhancePrompt
   get enhancePrompt(): EnhancePrompt {
     return (this._enhancePrompt ??= new EnhancePrompt({ client: this.client }))
+  }
+
+  private _forge?: Forge
+  get forge(): Forge {
+    return (this._forge ??= new Forge({ client: this.client }))
   }
 
   private _indexing?: Indexing

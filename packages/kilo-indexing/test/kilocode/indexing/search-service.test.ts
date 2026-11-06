@@ -21,7 +21,7 @@ const store = (results: VectorStoreSearchResult[], limits: number[]): IVectorSto
       limits.push(limit ?? results.length)
       return results.slice(0, limit)
     },
-  }) as unknown as IVectorStore
+  } satisfies Pick<IVectorStore, "search">) as IVectorStore
 
 const embedder = (calls: string[][]): IEmbedder => ({
   async createEmbeddings(texts) {
@@ -32,7 +32,7 @@ const embedder = (calls: string[][]): IEmbedder => ({
     return { valid: true }
   },
   get embedderInfo() {
-    return { name: "openai" }
+    return { name: "openai" as const }
   },
 })
 

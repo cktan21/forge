@@ -119,6 +119,7 @@ export type Event =
   | EventKilocodeNotebookRequested
   | EventKilocodeNotebookCancelled
   | EventKiloSessionsRemoteStatusChanged
+  | EventForgeChanged
   | EventLspClientDiagnostics
   | EventMemoryStatus1
   | EventMemoryUpdated1
@@ -1169,6 +1170,7 @@ export type GlobalEvent = {
     | EventKilocodeNotebookRequested
     | EventKilocodeNotebookCancelled
     | EventKiloSessionsRemoteStatusChanged
+    | EventForgeChanged
     | EventLspClientDiagnostics
     | EventMemoryStatus
     | EventMemoryUpdated
@@ -4145,6 +4147,65 @@ export type TuiKeybindListResponse = {
   keybinds: Array<TuiKeybindInfo>
 }
 
+export type ForgeError = {
+  _tag: "ForgeError"
+  message: string
+  failure?: {
+    code: "schema" | "json" | "cutoff" | "citation" | "transport" | "timeout" | "cancelled"
+    schema: "forge-enhancement-v2"
+    issues: Array<{
+      path: Array<
+        | "summary"
+        | "objective"
+        | "reuse"
+        | "inspect"
+        | "changes"
+        | "constraints"
+        | "hypotheses"
+        | "acceptance"
+        | "verification"
+        | "evidence"
+        | "questions"
+        | "kind"
+        | "question"
+        | "impact"
+        | "options"
+        | "statement"
+        | "reason"
+        | "action"
+        | "basis"
+        | number
+      >
+      expected: "string" | "array" | "object" | "hypothesis" | "decision" | "valid value"
+      actual: "missing" | "null" | "string" | "number" | "boolean" | "array" | "object" | "unknown"
+    }>
+    request?: string
+    model?: string
+    status?: number
+    reason?:
+      | "request-schema"
+      | "unsupported-format"
+      | "authentication"
+      | "permission"
+      | "credits"
+      | "rate-limit"
+      | "context-limit"
+      | "unavailable"
+      | "invalid-request"
+      | "network"
+      | "unknown"
+    finish?: "stop" | "length" | "content-filter" | "tool-calls" | "error" | "other" | "unknown"
+    usage?: {
+      input: number
+      output: number
+      cached: number
+      milliseconds: number
+      model: string
+      measured: boolean
+    }
+  }
+}
+
 export type KiloEmbeddingModelCatalog = {
   defaultModel: string
   models: Array<{
@@ -5343,6 +5404,16 @@ export type EventKiloSessionsRemoteStatusChanged = {
   properties: {
     enabled: boolean
     connected: boolean
+  }
+}
+
+export type EventForgeChanged = {
+  id: string
+  type: "forge.changed"
+  properties: {
+    topic: "knowledge" | "policy" | "request" | "job" | "invalidate"
+    session: string
+    revision: string
   }
 }
 
@@ -16144,6 +16215,3315 @@ export type EnhancePromptEnhanceResponses = {
 }
 
 export type EnhancePromptEnhanceResponse = EnhancePromptEnhanceResponses[keyof EnhancePromptEnhanceResponses]
+
+export type ForgeStatusData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+    session?: string
+  }
+  url: "/forge/status"
+}
+
+export type ForgeStatusErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgeStatusError = ForgeStatusErrors[keyof ForgeStatusErrors]
+
+export type ForgeStatusResponses = {
+  /**
+   * Success
+   */
+  200: {
+    inventory: {
+      root: string
+      generation: string
+      revision: string
+      observed: number
+      files: number
+      partial: boolean
+      indexed: boolean
+      counts: {
+        [key: string]: number
+      }
+      warnings: Array<string>
+    }
+    references?: string
+    session: string
+    job: {
+      id: string
+      state: "idle" | "running" | "completed" | "failed" | "cancelled"
+      started: number
+      updated: number
+      message: string
+    }
+    semantic?: {
+      state: "uninitialized" | "initializing" | "disabled" | "indexing" | "ready" | "paused" | "error" | "unknown"
+      searchable?: boolean
+    }
+    coding?: {
+      id: string
+      revision?: string
+      session: string
+      purpose: string
+      model: string
+      observed: number
+      state: "retrieving" | "assembled" | "sent" | "completed" | "failed"
+      entries: number
+      sent: number
+      usage: {
+        input: number
+        output: number
+        cached: number
+        milliseconds: number
+        model: string
+        measured: boolean
+      }
+    }
+    preparation?: {
+      id: string
+      revision?: string
+      session: string
+      purpose: string
+      model: string
+      observed: number
+      state: "retrieving" | "assembled" | "sent" | "completed" | "failed"
+      entries: number
+      sent: number
+      usage: {
+        input: number
+        output: number
+        cached: number
+        milliseconds: number
+        model: string
+        measured: boolean
+      }
+    }
+  }
+}
+
+export type ForgeStatusResponse = ForgeStatusResponses[keyof ForgeStatusResponses]
+
+export type ForgeKnowledgeData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+    session?: string
+    query?: string
+    limit?: string
+    offset?: string
+    generation?: string
+  }
+  url: "/forge/knowledge"
+}
+
+export type ForgeKnowledgeErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgeKnowledgeError = ForgeKnowledgeErrors[keyof ForgeKnowledgeErrors]
+
+export type ForgeKnowledgeResponses = {
+  /**
+   * Success
+   */
+  200: {
+    collections: Array<{
+      id: string
+      label: string
+      kind: "file" | "folder" | "text" | "url" | "upload"
+      location: string
+      session: string
+      origin: "interface" | "config"
+      include: Array<string>
+      exclude: Array<string>
+      watch: boolean
+      approved: boolean
+      providers: Array<string>
+      grants?: {
+        [key: string]: string
+      }
+      state: "registered" | "indexing" | "ready" | "failed" | "paused" | "removed"
+      observed: number
+      generation: string
+      files: number
+      chunks: number
+      warnings: Array<string>
+      progress?: {
+        stage: "discover" | "extract" | "publish"
+        files: number
+        bytes: number
+        chunks: number
+        updated: number
+        document: string
+        started?: number
+        deadline?: number
+      }
+      result?: {
+        started: number
+        finished: number
+        state: "published" | "failed"
+        files: number
+        bytes: number
+        extracted: number
+        reused: number
+        empty: number
+        failed: number
+      }
+    }>
+    references?: string
+    generation: string
+    page: {
+      offset: number
+      limit: number
+      next?: number
+      total?: number
+    }
+    provider: string
+    destination?: {
+      fingerprint: string
+      origins: Array<string>
+    }
+    warning?: string
+  }
+}
+
+export type ForgeKnowledgeResponse = ForgeKnowledgeResponses[keyof ForgeKnowledgeResponses]
+
+export type ForgeRegisterData = {
+  body?: {
+    label: string
+    kind: "file" | "folder" | "text" | "url" | "upload"
+    location: string
+    session?: string
+    include?: Array<string>
+    exclude?: Array<string>
+    watch?: boolean
+    content?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/forge/knowledge"
+}
+
+export type ForgeRegisterErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgeRegisterError = ForgeRegisterErrors[keyof ForgeRegisterErrors]
+
+export type ForgeRegisterResponses = {
+  /**
+   * Success
+   */
+  200: {
+    id: string
+    label: string
+    kind: "file" | "folder" | "text" | "url" | "upload"
+    location: string
+    session: string
+    origin: "interface" | "config"
+    include: Array<string>
+    exclude: Array<string>
+    watch: boolean
+    approved: boolean
+    providers: Array<string>
+    grants?: {
+      [key: string]: string
+    }
+    state: "registered" | "indexing" | "ready" | "failed" | "paused" | "removed"
+    observed: number
+    generation: string
+    files: number
+    chunks: number
+    warnings: Array<string>
+    progress?: {
+      stage: "discover" | "extract" | "publish"
+      files: number
+      bytes: number
+      chunks: number
+      updated: number
+      document: string
+      started?: number
+      deadline?: number
+    }
+    result?: {
+      started: number
+      finished: number
+      state: "published" | "failed"
+      files: number
+      bytes: number
+      extracted: number
+      reused: number
+      empty: number
+      failed: number
+    }
+  }
+}
+
+export type ForgeRegisterResponse = ForgeRegisterResponses[keyof ForgeRegisterResponses]
+
+export type ForgeImportsData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    session?: string
+    run?: string
+    limit?: string
+    offset?: string
+  }
+  url: "/forge/knowledge/{id}/imports"
+}
+
+export type ForgeImportsErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgeImportsError = ForgeImportsErrors[keyof ForgeImportsErrors]
+
+export type ForgeImportsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    runs: Array<{
+      id: string
+      collection: string
+      session: string
+      started: number
+      updated: number
+      finished?: number
+      state: "running" | "published" | "failed" | "cancelled" | "interrupted"
+      stage: "discover" | "extract" | "publish"
+      generation?: string
+      count: number
+      withheld: number
+    }>
+    selected?: {
+      id: string
+      collection: string
+      session: string
+      started: number
+      updated: number
+      finished?: number
+      state: "running" | "published" | "failed" | "cancelled" | "interrupted"
+      stage: "discover" | "extract" | "publish"
+      generation?: string
+      count: number
+      withheld: number
+    }
+    documents: Array<{
+      name: string
+      state: "processing" | "extracted" | "reused" | "empty" | "failed" | "cancelled"
+      bytes: number
+      chunks: number
+    }>
+    page: {
+      offset: number
+      limit: number
+      next?: number
+      total?: number
+    }
+  }
+}
+
+export type ForgeImportsResponse = ForgeImportsResponses[keyof ForgeImportsResponses]
+
+export type ForgeEmbeddingReviewData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    session?: string
+  }
+  url: "/forge/knowledge/{id}/embeddings"
+}
+
+export type ForgeEmbeddingReviewErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgeEmbeddingReviewError = ForgeEmbeddingReviewErrors[keyof ForgeEmbeddingReviewErrors]
+
+export type ForgeEmbeddingReviewResponses = {
+  /**
+   * Success
+   */
+  200: {
+    endpoint: string
+    target: {
+      fingerprint: string
+      model: string
+      dimensions: number
+    }
+    revision: string
+    approved: boolean
+  }
+}
+
+export type ForgeEmbeddingReviewResponse = ForgeEmbeddingReviewResponses[keyof ForgeEmbeddingReviewResponses]
+
+export type ForgeEmbeddingCoverageData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    session?: string
+  }
+  url: "/forge/knowledge/{id}/embeddings/coverage"
+}
+
+export type ForgeEmbeddingCoverageErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgeEmbeddingCoverageError = ForgeEmbeddingCoverageErrors[keyof ForgeEmbeddingCoverageErrors]
+
+export type ForgeEmbeddingCoverageResponses = {
+  /**
+   * Success
+   */
+  200: {
+    collection: string
+    session: string
+    target: {
+      fingerprint: string
+      model: string
+      dimensions: number
+    }
+    started: number
+    finished: number
+    sections: number
+    reusable: number
+    missing: number
+    outdated: number
+    stale: number
+    excluded: number
+  }
+}
+
+export type ForgeEmbeddingCoverageResponse = ForgeEmbeddingCoverageResponses[keyof ForgeEmbeddingCoverageResponses]
+
+export type ForgeEmbeddingApproveData = {
+  body?: {
+    session?: string
+    revision: string
+  }
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/forge/knowledge/{id}/embeddings/approve"
+}
+
+export type ForgeEmbeddingApproveErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgeEmbeddingApproveError = ForgeEmbeddingApproveErrors[keyof ForgeEmbeddingApproveErrors]
+
+export type ForgeEmbeddingApproveResponses = {
+  /**
+   * Success
+   */
+  200: {
+    approved: true
+  }
+}
+
+export type ForgeEmbeddingApproveResponse = ForgeEmbeddingApproveResponses[keyof ForgeEmbeddingApproveResponses]
+
+export type ForgeEmbeddingRevokeData = {
+  body?: {
+    session?: string
+  }
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/forge/knowledge/{id}/embeddings/revoke"
+}
+
+export type ForgeEmbeddingRevokeErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgeEmbeddingRevokeError = ForgeEmbeddingRevokeErrors[keyof ForgeEmbeddingRevokeErrors]
+
+export type ForgeEmbeddingRevokeResponses = {
+  /**
+   * Success
+   */
+  200: {
+    revoked: true
+  }
+}
+
+export type ForgeEmbeddingRevokeResponse = ForgeEmbeddingRevokeResponses[keyof ForgeEmbeddingRevokeResponses]
+
+export type ForgeEmbeddingIndexData = {
+  body?: {
+    session?: string
+  }
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/forge/knowledge/{id}/embeddings/index"
+}
+
+export type ForgeEmbeddingIndexErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgeEmbeddingIndexError = ForgeEmbeddingIndexErrors[keyof ForgeEmbeddingIndexErrors]
+
+export type ForgeEmbeddingIndexResponses = {
+  /**
+   * Success
+   */
+  200: {
+    sections: number
+    embedded: number
+    reused: number
+  }
+}
+
+export type ForgeEmbeddingIndexResponse = ForgeEmbeddingIndexResponses[keyof ForgeEmbeddingIndexResponses]
+
+export type ForgeEmbeddingJobsData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    session?: string
+  }
+  url: "/forge/knowledge/{id}/embeddings/jobs"
+}
+
+export type ForgeEmbeddingJobsErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgeEmbeddingJobsError = ForgeEmbeddingJobsErrors[keyof ForgeEmbeddingJobsErrors]
+
+export type ForgeEmbeddingJobsResponses = {
+  /**
+   * Success
+   */
+  200: Array<{
+    id: string
+    collection: string
+    session: string
+    revision: string
+    target: {
+      fingerprint: string
+      model: string
+      dimensions: number
+    }
+    state: "queued" | "running" | "completed" | "failed" | "cancelled" | "interrupted"
+    started: number
+    updated: number
+    progressed: number
+    finished?: number
+    progress: {
+      phase: "queued" | "checking" | "embedding" | "publishing" | "validating"
+      sections?: number
+      processed: number
+      embedded: number
+      reused: number
+    }
+    usage?: {
+      attempts: number
+      inputs: number
+      bytes: number
+      responses: number
+      failed: number
+      pending: number
+      promptTokens: number
+      promptReports: number
+      totalTokens: number
+      totalReports: number
+    }
+    result?: {
+      sections: number
+      embedded: number
+      reused: number
+    }
+    error?: string
+  }>
+}
+
+export type ForgeEmbeddingJobsResponse = ForgeEmbeddingJobsResponses[keyof ForgeEmbeddingJobsResponses]
+
+export type ForgeEmbeddingStartData = {
+  body?: {
+    session?: string
+  }
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/forge/knowledge/{id}/embeddings/jobs"
+}
+
+export type ForgeEmbeddingStartErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgeEmbeddingStartError = ForgeEmbeddingStartErrors[keyof ForgeEmbeddingStartErrors]
+
+export type ForgeEmbeddingStartResponses = {
+  /**
+   * Success
+   */
+  200: {
+    id: string
+    collection: string
+    session: string
+    revision: string
+    target: {
+      fingerprint: string
+      model: string
+      dimensions: number
+    }
+    state: "queued" | "running" | "completed" | "failed" | "cancelled" | "interrupted"
+    started: number
+    updated: number
+    progressed: number
+    finished?: number
+    progress: {
+      phase: "queued" | "checking" | "embedding" | "publishing" | "validating"
+      sections?: number
+      processed: number
+      embedded: number
+      reused: number
+    }
+    usage?: {
+      attempts: number
+      inputs: number
+      bytes: number
+      responses: number
+      failed: number
+      pending: number
+      promptTokens: number
+      promptReports: number
+      totalTokens: number
+      totalReports: number
+    }
+    result?: {
+      sections: number
+      embedded: number
+      reused: number
+    }
+    error?: string
+  }
+}
+
+export type ForgeEmbeddingStartResponse = ForgeEmbeddingStartResponses[keyof ForgeEmbeddingStartResponses]
+
+export type ForgeEmbeddingUsageData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+    session?: string
+    after?: string
+    limit?: string
+  }
+  url: "/forge/embeddings/usage"
+}
+
+export type ForgeEmbeddingUsageErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgeEmbeddingUsageError = ForgeEmbeddingUsageErrors[keyof ForgeEmbeddingUsageErrors]
+
+export type ForgeEmbeddingUsageResponses = {
+  /**
+   * Success
+   */
+  200: {
+    session: string
+    entries: Array<{
+      id: string
+      session: string
+      collections: Array<string>
+      target: {
+        fingerprint: string
+        model: string
+        dimensions: number
+      }
+      purpose: "query" | "index" | "job"
+      started: number
+      finished?: number
+      usage: {
+        attempts: number
+        inputs: number
+        bytes: number
+        responses: number
+        failed: number
+        pending: number
+        promptTokens: number
+        promptReports: number
+        totalTokens: number
+        totalReports: number
+      }
+    }>
+    next?: string
+    observation?: {
+      revision: string
+      since: number
+      before: "unknown"
+      deleted: boolean
+    }
+  }
+}
+
+export type ForgeEmbeddingUsageResponse = ForgeEmbeddingUsageResponses[keyof ForgeEmbeddingUsageResponses]
+
+export type ForgeEmbeddingRetentionData = {
+  body?: {
+    session?: string
+    before: number
+    keep: number
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/forge/embeddings/retention"
+}
+
+export type ForgeEmbeddingRetentionErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgeEmbeddingRetentionError = ForgeEmbeddingRetentionErrors[keyof ForgeEmbeddingRetentionErrors]
+
+export type ForgeEmbeddingRetentionResponses = {
+  /**
+   * Success
+   */
+  200: {
+    session: string
+    before: number
+    keep: number
+    selected: number
+    limit: 100
+    more: boolean
+    revision: string
+    observation: {
+      revision: string
+      since: number
+      before: "unknown"
+      deleted: boolean
+    }
+  }
+}
+
+export type ForgeEmbeddingRetentionResponse = ForgeEmbeddingRetentionResponses[keyof ForgeEmbeddingRetentionResponses]
+
+export type ForgeEmbeddingPruneData = {
+  body?: {
+    session?: string
+    before: number
+    keep: number
+    revision: string
+    confirmation: "DELETE"
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/forge/embeddings/prune"
+}
+
+export type ForgeEmbeddingPruneErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgeEmbeddingPruneError = ForgeEmbeddingPruneErrors[keyof ForgeEmbeddingPruneErrors]
+
+export type ForgeEmbeddingPruneResponses = {
+  /**
+   * Success
+   */
+  200: {
+    deleted: number
+    more: boolean
+  }
+}
+
+export type ForgeEmbeddingPruneResponse = ForgeEmbeddingPruneResponses[keyof ForgeEmbeddingPruneResponses]
+
+export type ForgeEmbeddingCancelData = {
+  body?: {
+    session?: string
+  }
+  path: {
+    id: string
+    job: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/forge/knowledge/{id}/embeddings/jobs/{job}/cancel"
+}
+
+export type ForgeEmbeddingCancelErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgeEmbeddingCancelError = ForgeEmbeddingCancelErrors[keyof ForgeEmbeddingCancelErrors]
+
+export type ForgeEmbeddingCancelResponses = {
+  /**
+   * Success
+   */
+  200: {
+    requested: true
+  }
+}
+
+export type ForgeEmbeddingCancelResponse = ForgeEmbeddingCancelResponses[keyof ForgeEmbeddingCancelResponses]
+
+export type ForgePreviewData = {
+  body?: {
+    label: string
+    kind: "file" | "folder" | "text" | "url" | "upload"
+    location: string
+    session?: string
+    include?: Array<string>
+    exclude?: Array<string>
+    watch?: boolean
+    content?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/forge/knowledge/preview"
+}
+
+export type ForgePreviewErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgePreviewError = ForgePreviewErrors[keyof ForgePreviewErrors]
+
+export type ForgePreviewResponses = {
+  /**
+   * Success
+   */
+  200: {
+    location: string
+    files: number
+    bytes: number
+    excluded: number
+    partial: boolean
+    samples: Array<{
+      name: string
+      bytes: number
+      text: string
+    }>
+    warnings: Array<string>
+  }
+}
+
+export type ForgePreviewResponse = ForgePreviewResponses[keyof ForgePreviewResponses]
+
+export type ForgeCollectionData = {
+  body?: {
+    action: "approve" | "index" | "pause" | "remove" | "purge"
+    session?: string
+    providers?: Array<string>
+    grants?: {
+      [key: string]: string
+    }
+    confirmation?: string
+  }
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/forge/knowledge/{id}"
+}
+
+export type ForgeCollectionErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgeCollectionError = ForgeCollectionErrors[keyof ForgeCollectionErrors]
+
+export type ForgeCollectionResponses = {
+  /**
+   * Success
+   */
+  200: {
+    collection?: {
+      id: string
+      label: string
+      kind: "file" | "folder" | "text" | "url" | "upload"
+      location: string
+      session: string
+      origin: "interface" | "config"
+      include: Array<string>
+      exclude: Array<string>
+      watch: boolean
+      approved: boolean
+      providers: Array<string>
+      grants?: {
+        [key: string]: string
+      }
+      state: "registered" | "indexing" | "ready" | "failed" | "paused" | "removed"
+      observed: number
+      generation: string
+      files: number
+      chunks: number
+      warnings: Array<string>
+      progress?: {
+        stage: "discover" | "extract" | "publish"
+        files: number
+        bytes: number
+        chunks: number
+        updated: number
+        document: string
+        started?: number
+        deadline?: number
+      }
+      result?: {
+        started: number
+        finished: number
+        state: "published" | "failed"
+        files: number
+        bytes: number
+        extracted: number
+        reused: number
+        empty: number
+        failed: number
+      }
+    }
+  }
+}
+
+export type ForgeCollectionResponse = ForgeCollectionResponses[keyof ForgeCollectionResponses]
+
+export type ForgePolicyData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+    session?: string
+  }
+  url: "/forge/policy"
+}
+
+export type ForgePolicyErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgePolicyError = ForgePolicyErrors[keyof ForgePolicyErrors]
+
+export type ForgePolicyResponses = {
+  /**
+   * Success
+   */
+  200: {
+    version: string
+    session: string
+    pin: Array<string>
+    exclude: Array<string>
+    versions?: {
+      [key: string]: string
+    }
+  }
+}
+
+export type ForgePolicyResponse = ForgePolicyResponses[keyof ForgePolicyResponses]
+
+export type ForgeConfigureData = {
+  body?: {
+    version: string
+    session: string
+    pin: Array<string>
+    exclude: Array<string>
+    versions?: {
+      [key: string]: string
+    }
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/forge/policy"
+}
+
+export type ForgeConfigureErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgeConfigureError = ForgeConfigureErrors[keyof ForgeConfigureErrors]
+
+export type ForgeConfigureResponses = {
+  /**
+   * Success
+   */
+  200: {
+    version: string
+    session: string
+    pin: Array<string>
+    exclude: Array<string>
+    versions?: {
+      [key: string]: string
+    }
+  }
+}
+
+export type ForgeConfigureResponse = ForgeConfigureResponses[keyof ForgeConfigureResponses]
+
+export type ForgeIndexData = {
+  body?: {
+    [key: string]: unknown
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/forge/index"
+}
+
+export type ForgeIndexErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgeIndexError = ForgeIndexErrors[keyof ForgeIndexErrors]
+
+export type ForgeIndexResponses = {
+  /**
+   * Success
+   */
+  200: {
+    id: string
+    state: "idle" | "running" | "completed" | "failed" | "cancelled"
+    started: number
+    updated: number
+    message: string
+  }
+}
+
+export type ForgeIndexResponse = ForgeIndexResponses[keyof ForgeIndexResponses]
+
+export type ForgeCancelData = {
+  body?: {
+    [key: string]: unknown
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/forge/index/cancel"
+}
+
+export type ForgeCancelErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgeCancelError = ForgeCancelErrors[keyof ForgeCancelErrors]
+
+export type ForgeCancelResponses = {
+  /**
+   * Success
+   */
+  200: {
+    id: string
+    state: "idle" | "running" | "completed" | "failed" | "cancelled"
+    started: number
+    updated: number
+    message: string
+  }
+}
+
+export type ForgeCancelResponse = ForgeCancelResponses[keyof ForgeCancelResponses]
+
+export type ForgeViewData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+    session?: string
+    category?: string
+    focus?: string
+    document?: string
+    query?: string
+    limit?: string
+    offset?: string
+    generation?: string
+  }
+  url: "/forge/view"
+}
+
+export type ForgeViewErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgeViewError = ForgeViewErrors[keyof ForgeViewErrors]
+
+export type ForgeViewResponses = {
+  /**
+   * Success
+   */
+  200: {
+    root: string
+    revision: string
+    generation: string
+    observed: number
+    sources: Array<{
+      id: string
+      kind:
+        | "agent"
+        | "directory"
+        | "code"
+        | "symbol"
+        | "test"
+        | "document"
+        | "dependency"
+        | "schema"
+        | "configuration"
+        | "instruction"
+        | "goal"
+        | "memory"
+        | "history"
+        | "tool"
+        | "attachment"
+        | "summary"
+        | "opportunity"
+      label: string
+      uri: string
+      hash: string
+      text: string
+      start: number
+      end: number
+      observed: number
+      method: string
+      status: "current" | "stale" | "unavailable"
+      inferred: boolean
+      evidence: Array<string>
+      detail: {
+        [key: string]: string
+      }
+    }>
+    relations: Array<{
+      id: string
+      from: string
+      to: string
+      kind: string
+      inferred: boolean
+      evidence: Array<string>
+      reason: string
+    }>
+    warnings: Array<string>
+    partial: boolean
+    files: number
+    page: {
+      offset: number
+      limit: number
+      next?: number
+      total?: number
+    }
+    categories?: {
+      [key: string]: number
+    }
+  }
+}
+
+export type ForgeViewResponse = ForgeViewResponses[keyof ForgeViewResponses]
+
+export type ForgeBaselineData = {
+  body?: {
+    text: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/forge/baseline"
+}
+
+export type ForgeBaselineErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgeBaselineError = ForgeBaselineErrors[keyof ForgeBaselineErrors]
+
+export type ForgeBaselineResponses = {
+  /**
+   * Success
+   */
+  200: {
+    text: string
+    usage: {
+      input: number
+      output: number
+      cached: number
+      milliseconds: number
+      model: string
+      measured: boolean
+    }
+  }
+}
+
+export type ForgeBaselineResponse = ForgeBaselineResponses[keyof ForgeBaselineResponses]
+
+export type ForgeRefreshData = {
+  body?: {
+    [key: string]: unknown
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/forge/refresh"
+}
+
+export type ForgeRefreshErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgeRefreshError = ForgeRefreshErrors[keyof ForgeRefreshErrors]
+
+export type ForgeRefreshResponses = {
+  /**
+   * Success
+   */
+  200: {
+    root: string
+    revision: string
+    generation: string
+    observed: number
+    sources: Array<{
+      id: string
+      kind:
+        | "agent"
+        | "directory"
+        | "code"
+        | "symbol"
+        | "test"
+        | "document"
+        | "dependency"
+        | "schema"
+        | "configuration"
+        | "instruction"
+        | "goal"
+        | "memory"
+        | "history"
+        | "tool"
+        | "attachment"
+        | "summary"
+        | "opportunity"
+      label: string
+      uri: string
+      hash: string
+      text: string
+      start: number
+      end: number
+      observed: number
+      method: string
+      status: "current" | "stale" | "unavailable"
+      inferred: boolean
+      evidence: Array<string>
+      detail: {
+        [key: string]: string
+      }
+    }>
+    relations: Array<{
+      id: string
+      from: string
+      to: string
+      kind: string
+      inferred: boolean
+      evidence: Array<string>
+      reason: string
+    }>
+    warnings: Array<string>
+    partial: boolean
+    files: number
+  }
+}
+
+export type ForgeRefreshResponse = ForgeRefreshResponses[keyof ForgeRefreshResponses]
+
+export type ForgeGraphData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+    focus?: string
+    query?: string
+    limit?: string
+  }
+  url: "/forge/graph"
+}
+
+export type ForgeGraphErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgeGraphError = ForgeGraphErrors[keyof ForgeGraphErrors]
+
+export type ForgeGraphResponses = {
+  /**
+   * Success
+   */
+  200: {
+    root: string
+    revision: string
+    generation: string
+    observed: number
+    sources: Array<{
+      id: string
+      kind:
+        | "agent"
+        | "directory"
+        | "code"
+        | "symbol"
+        | "test"
+        | "document"
+        | "dependency"
+        | "schema"
+        | "configuration"
+        | "instruction"
+        | "goal"
+        | "memory"
+        | "history"
+        | "tool"
+        | "attachment"
+        | "summary"
+        | "opportunity"
+      label: string
+      uri: string
+      hash: string
+      text: string
+      start: number
+      end: number
+      observed: number
+      method: string
+      status: "current" | "stale" | "unavailable"
+      inferred: boolean
+      evidence: Array<string>
+      detail: {
+        [key: string]: string
+      }
+    }>
+    relations: Array<{
+      id: string
+      from: string
+      to: string
+      kind: string
+      inferred: boolean
+      evidence: Array<string>
+      reason: string
+    }>
+    warnings: Array<string>
+    partial: boolean
+    files: number
+  }
+}
+
+export type ForgeGraphResponse = ForgeGraphResponses[keyof ForgeGraphResponses]
+
+export type ForgeSourceData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    session?: string
+  }
+  url: "/forge/source/{id}"
+}
+
+export type ForgeSourceErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgeSourceError = ForgeSourceErrors[keyof ForgeSourceErrors]
+
+export type ForgeSourceResponses = {
+  /**
+   * Success
+   */
+  200: {
+    id: string
+    kind:
+      | "agent"
+      | "directory"
+      | "code"
+      | "symbol"
+      | "test"
+      | "document"
+      | "dependency"
+      | "schema"
+      | "configuration"
+      | "instruction"
+      | "goal"
+      | "memory"
+      | "history"
+      | "tool"
+      | "attachment"
+      | "summary"
+      | "opportunity"
+    label: string
+    uri: string
+    hash: string
+    text: string
+    start: number
+    end: number
+    observed: number
+    method: string
+    status: "current" | "stale" | "unavailable"
+    inferred: boolean
+    evidence: Array<string>
+    detail: {
+      [key: string]: string
+    }
+  }
+}
+
+export type ForgeSourceResponse = ForgeSourceResponses[keyof ForgeSourceResponses]
+
+export type ForgeOverviewData = {
+  body?: {
+    [key: string]: unknown
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/forge/overview"
+}
+
+export type ForgeOverviewErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgeOverviewError = ForgeOverviewErrors[keyof ForgeOverviewErrors]
+
+export type ForgeOverviewResponses = {
+  /**
+   * Success
+   */
+  200: {
+    snapshot: {
+      root: string
+      revision: string
+      generation: string
+      observed: number
+      sources: Array<{
+        id: string
+        kind:
+          | "agent"
+          | "directory"
+          | "code"
+          | "symbol"
+          | "test"
+          | "document"
+          | "dependency"
+          | "schema"
+          | "configuration"
+          | "instruction"
+          | "goal"
+          | "memory"
+          | "history"
+          | "tool"
+          | "attachment"
+          | "summary"
+          | "opportunity"
+        label: string
+        uri: string
+        hash: string
+        text: string
+        start: number
+        end: number
+        observed: number
+        method: string
+        status: "current" | "stale" | "unavailable"
+        inferred: boolean
+        evidence: Array<string>
+        detail: {
+          [key: string]: string
+        }
+      }>
+      relations: Array<{
+        id: string
+        from: string
+        to: string
+        kind: string
+        inferred: boolean
+        evidence: Array<string>
+        reason: string
+      }>
+      warnings: Array<string>
+      partial: boolean
+      files: number
+    }
+    summary: string
+    evidence: Array<string>
+    usage: {
+      input: number
+      output: number
+      cached: number
+      milliseconds: number
+      model: string
+      measured: boolean
+    }
+  }
+}
+
+export type ForgeOverviewResponse = ForgeOverviewResponses[keyof ForgeOverviewResponses]
+
+export type ForgeIdeasData = {
+  body?: {
+    goal: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/forge/ideas"
+}
+
+export type ForgeIdeasErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgeIdeasError = ForgeIdeasErrors[keyof ForgeIdeasErrors]
+
+export type ForgeIdeasResponses = {
+  /**
+   * Success
+   */
+  200: Array<{
+    id: string
+    title: string
+    goal: string
+    benefit: string
+    evidence: Array<string>
+    counterevidence: Array<string>
+    uncertainty: string
+    verification: string
+    prompt: string
+    status: "proposed" | "confirmed" | "rejected" | "superseded" | "stale"
+    generation: string
+    observed: number
+  }>
+}
+
+export type ForgeIdeasResponse = ForgeIdeasResponses[keyof ForgeIdeasResponses]
+
+export type ForgeOpportunitiesData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/forge/opportunities"
+}
+
+export type ForgeOpportunitiesErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgeOpportunitiesError = ForgeOpportunitiesErrors[keyof ForgeOpportunitiesErrors]
+
+export type ForgeOpportunitiesResponses = {
+  /**
+   * Success
+   */
+  200: Array<{
+    id: string
+    title: string
+    goal: string
+    benefit: string
+    evidence: Array<string>
+    counterevidence: Array<string>
+    uncertainty: string
+    verification: string
+    prompt: string
+    status: "proposed" | "confirmed" | "rejected" | "superseded" | "stale"
+    generation: string
+    observed: number
+  }>
+}
+
+export type ForgeOpportunitiesResponse = ForgeOpportunitiesResponses[keyof ForgeOpportunitiesResponses]
+
+export type ForgeDecideData = {
+  body?: {
+    status: "proposed" | "confirmed" | "rejected" | "superseded" | "stale"
+  }
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/forge/opportunity/{id}"
+}
+
+export type ForgeDecideErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgeDecideError = ForgeDecideErrors[keyof ForgeDecideErrors]
+
+export type ForgeDecideResponses = {
+  /**
+   * Success
+   */
+  200: {
+    id: string
+    title: string
+    goal: string
+    benefit: string
+    evidence: Array<string>
+    counterevidence: Array<string>
+    uncertainty: string
+    verification: string
+    prompt: string
+    status: "proposed" | "confirmed" | "rejected" | "superseded" | "stale"
+    generation: string
+    observed: number
+  }
+}
+
+export type ForgeDecideResponse = ForgeDecideResponses[keyof ForgeDecideResponses]
+
+export type ForgeEnhanceData = {
+  body?: {
+    text: string
+    answers?: string
+    feedback?: string
+    revision?: string
+    edits?: Array<{
+      before: string
+      after: string
+    }>
+    model?: {
+      providerID: string
+      modelID: string
+    }
+    retry?: Array<{
+      path: Array<
+        | "summary"
+        | "objective"
+        | "reuse"
+        | "inspect"
+        | "changes"
+        | "constraints"
+        | "hypotheses"
+        | "acceptance"
+        | "verification"
+        | "evidence"
+        | "questions"
+        | "kind"
+        | "question"
+        | "impact"
+        | "options"
+        | "statement"
+        | "reason"
+        | "action"
+        | "basis"
+        | number
+      >
+      expected: "string" | "array" | "object" | "hypothesis" | "decision" | "valid value"
+      actual: "missing" | "null" | "string" | "number" | "boolean" | "array" | "object" | "unknown"
+    }>
+    session?: string
+    pin?: Array<string>
+    exclude?: Array<string>
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/forge/enhance"
+}
+
+export type ForgeEnhanceErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgeEnhanceError = ForgeEnhanceErrors[keyof ForgeEnhanceErrors]
+
+export type ForgeEnhanceResponses = {
+  /**
+   * Success
+   */
+  200: {
+    id: string
+    original: string
+    generation: string
+    status: "ready" | "needs_clarification"
+    task: {
+      objective: string
+      reuse: Array<string>
+      inspect: Array<string>
+      changes: Array<string>
+      constraints: Array<string>
+      hypotheses: Array<string>
+      questions: Array<string>
+      acceptance: Array<string>
+      verification: Array<string>
+      evidence: Array<string>
+    }
+    context: {
+      matches: Array<{
+        source: {
+          id: string
+          kind:
+            | "agent"
+            | "directory"
+            | "code"
+            | "symbol"
+            | "test"
+            | "document"
+            | "dependency"
+            | "schema"
+            | "configuration"
+            | "instruction"
+            | "goal"
+            | "memory"
+            | "history"
+            | "tool"
+            | "attachment"
+            | "summary"
+            | "opportunity"
+          label: string
+          uri: string
+          hash: string
+          text: string
+          start: number
+          end: number
+          observed: number
+          method: string
+          status: "current" | "stale" | "unavailable"
+          inferred: boolean
+          evidence: Array<string>
+          detail: {
+            [key: string]: string
+          }
+        }
+        score: number
+        reason: string
+      }>
+      text: string
+      tokens: number
+      budget: number
+      estimator: string
+      omitted: Array<string>
+      reasons?: {
+        [key: string]: string
+      }
+      provider?: string
+      destination?: string
+      policy?: string
+      audit?: {
+        candidates: Array<{
+          source: string
+          hash: string
+          retrieval: string
+          score: number
+          state: "selected" | "omitted"
+          reason: string
+          channels?: Array<{
+            name:
+              | "keyword"
+              | "semantic"
+              | "collection-semantic"
+              | "domains"
+              | "memory"
+              | "relationships"
+              | "public-docs"
+              | "dependency-docs"
+            rank: number
+            score: number
+            reason: string
+          }>
+        }>
+        channels?: Array<{
+          name:
+            | "keyword"
+            | "semantic"
+            | "collection-semantic"
+            | "domains"
+            | "memory"
+            | "relationships"
+            | "public-docs"
+            | "dependency-docs"
+          state: "completed" | "fallback" | "disabled" | "unavailable" | "failed"
+          candidates: number
+          withheld: number
+          readiness?: {
+            state: "uninitialized" | "initializing" | "disabled" | "indexing" | "ready" | "paused" | "error" | "unknown"
+            searchable?: boolean
+          }
+        }>
+        total: number
+        unrecorded: number
+        withheld: number
+        budget: number
+        tokens: number
+        estimator: string
+        policy?: string
+        provider?: string
+        destination?: string
+      }
+    }
+    prompt: string
+    usage: {
+      input: number
+      output: number
+      cached: number
+      milliseconds: number
+      model: string
+      measured: boolean
+    }
+    warnings: Array<string>
+    questions?: Array<{
+      id: string
+      question: string
+      impact: string
+      options: Array<string>
+      optional: boolean
+    }>
+    session?: string
+    summary?: string
+    activity?: {
+      entries: Array<{
+        action: string
+        path?: string
+        detail: string
+      }>
+      counts?: {
+        [key: string]: number
+      }
+      total: number
+    }
+    model?: {
+      providerID: string
+      modelID: string
+    }
+  }
+}
+
+export type ForgeEnhanceResponse = ForgeEnhanceResponses[keyof ForgeEnhanceResponses]
+
+export type ForgeEnhanceStreamData = {
+  body?: {
+    text: string
+    answers?: string
+    feedback?: string
+    revision?: string
+    edits?: Array<{
+      before: string
+      after: string
+    }>
+    model?: {
+      providerID: string
+      modelID: string
+    }
+    retry?: Array<{
+      path: Array<
+        | "summary"
+        | "objective"
+        | "reuse"
+        | "inspect"
+        | "changes"
+        | "constraints"
+        | "hypotheses"
+        | "acceptance"
+        | "verification"
+        | "evidence"
+        | "questions"
+        | "kind"
+        | "question"
+        | "impact"
+        | "options"
+        | "statement"
+        | "reason"
+        | "action"
+        | "basis"
+        | number
+      >
+      expected: "string" | "array" | "object" | "hypothesis" | "decision" | "valid value"
+      actual: "missing" | "null" | "string" | "number" | "boolean" | "array" | "object" | "unknown"
+    }>
+    session?: string
+    pin?: Array<string>
+    exclude?: Array<string>
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/forge/enhance/stream"
+}
+
+export type ForgeEnhanceStreamErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgeEnhanceStreamError = ForgeEnhanceStreamErrors[keyof ForgeEnhanceStreamErrors]
+
+export type ForgeEnhanceStreamResponses = {
+  /**
+   * Success
+   */
+  200:
+    | {
+        type: "progress"
+        stage: string
+        summary?: string
+        preview?: string
+        activity?: {
+          entries: Array<{
+            action: string
+            path?: string
+            detail: string
+          }>
+          counts?: {
+            [key: string]: number
+          }
+          total: number
+        }
+      }
+    | {
+        type: "result"
+        proposal: {
+          id: string
+          original: string
+          generation: string
+          status: "ready" | "needs_clarification"
+          task: {
+            objective: string
+            reuse: Array<string>
+            inspect: Array<string>
+            changes: Array<string>
+            constraints: Array<string>
+            hypotheses: Array<string>
+            questions: Array<string>
+            acceptance: Array<string>
+            verification: Array<string>
+            evidence: Array<string>
+          }
+          context: {
+            matches: Array<{
+              source: {
+                id: string
+                kind:
+                  | "agent"
+                  | "directory"
+                  | "code"
+                  | "symbol"
+                  | "test"
+                  | "document"
+                  | "dependency"
+                  | "schema"
+                  | "configuration"
+                  | "instruction"
+                  | "goal"
+                  | "memory"
+                  | "history"
+                  | "tool"
+                  | "attachment"
+                  | "summary"
+                  | "opportunity"
+                label: string
+                uri: string
+                hash: string
+                text: string
+                start: number
+                end: number
+                observed: number
+                method: string
+                status: "current" | "stale" | "unavailable"
+                inferred: boolean
+                evidence: Array<string>
+                detail: {
+                  [key: string]: string
+                }
+              }
+              score: number
+              reason: string
+            }>
+            text: string
+            tokens: number
+            budget: number
+            estimator: string
+            omitted: Array<string>
+            reasons?: {
+              [key: string]: string
+            }
+            provider?: string
+            destination?: string
+            policy?: string
+            audit?: {
+              candidates: Array<{
+                source: string
+                hash: string
+                retrieval: string
+                score: number
+                state: "selected" | "omitted"
+                reason: string
+                channels?: Array<{
+                  name:
+                    | "keyword"
+                    | "semantic"
+                    | "collection-semantic"
+                    | "domains"
+                    | "memory"
+                    | "relationships"
+                    | "public-docs"
+                    | "dependency-docs"
+                  rank: number
+                  score: number
+                  reason: string
+                }>
+              }>
+              channels?: Array<{
+                name:
+                  | "keyword"
+                  | "semantic"
+                  | "collection-semantic"
+                  | "domains"
+                  | "memory"
+                  | "relationships"
+                  | "public-docs"
+                  | "dependency-docs"
+                state: "completed" | "fallback" | "disabled" | "unavailable" | "failed"
+                candidates: number
+                withheld: number
+                readiness?: {
+                  state:
+                    | "uninitialized"
+                    | "initializing"
+                    | "disabled"
+                    | "indexing"
+                    | "ready"
+                    | "paused"
+                    | "error"
+                    | "unknown"
+                  searchable?: boolean
+                }
+              }>
+              total: number
+              unrecorded: number
+              withheld: number
+              budget: number
+              tokens: number
+              estimator: string
+              policy?: string
+              provider?: string
+              destination?: string
+            }
+          }
+          prompt: string
+          usage: {
+            input: number
+            output: number
+            cached: number
+            milliseconds: number
+            model: string
+            measured: boolean
+          }
+          warnings: Array<string>
+          questions?: Array<{
+            id: string
+            question: string
+            impact: string
+            options: Array<string>
+            optional: boolean
+          }>
+          session?: string
+          summary?: string
+          activity?: {
+            entries: Array<{
+              action: string
+              path?: string
+              detail: string
+            }>
+            counts?: {
+              [key: string]: number
+            }
+            total: number
+          }
+          model?: {
+            providerID: string
+            modelID: string
+          }
+        }
+      }
+    | {
+        type: "error"
+        message: string
+        failure?: {
+          code: "schema" | "json" | "cutoff" | "citation" | "transport" | "timeout" | "cancelled"
+          schema: "forge-enhancement-v2"
+          issues: Array<{
+            path: Array<
+              | "summary"
+              | "objective"
+              | "reuse"
+              | "inspect"
+              | "changes"
+              | "constraints"
+              | "hypotheses"
+              | "acceptance"
+              | "verification"
+              | "evidence"
+              | "questions"
+              | "kind"
+              | "question"
+              | "impact"
+              | "options"
+              | "statement"
+              | "reason"
+              | "action"
+              | "basis"
+              | number
+            >
+            expected: "string" | "array" | "object" | "hypothesis" | "decision" | "valid value"
+            actual: "missing" | "null" | "string" | "number" | "boolean" | "array" | "object" | "unknown"
+          }>
+          request?: string
+          model?: string
+          status?: number
+          reason?:
+            | "request-schema"
+            | "unsupported-format"
+            | "authentication"
+            | "permission"
+            | "credits"
+            | "rate-limit"
+            | "context-limit"
+            | "unavailable"
+            | "invalid-request"
+            | "network"
+            | "unknown"
+          finish?: "stop" | "length" | "content-filter" | "tool-calls" | "error" | "other" | "unknown"
+          usage?: {
+            input: number
+            output: number
+            cached: number
+            milliseconds: number
+            model: string
+            measured: boolean
+          }
+        }
+      }
+}
+
+export type ForgeEnhanceStreamResponse = ForgeEnhanceStreamResponses[keyof ForgeEnhanceStreamResponses]
+
+export type ForgeValidateData = {
+  body?: {
+    id: string
+    original: string
+    generation: string
+    status: "ready" | "needs_clarification"
+    task: {
+      objective: string
+      reuse: Array<string>
+      inspect: Array<string>
+      changes: Array<string>
+      constraints: Array<string>
+      hypotheses: Array<string>
+      questions: Array<string>
+      acceptance: Array<string>
+      verification: Array<string>
+      evidence: Array<string>
+    }
+    context: {
+      matches: Array<{
+        source: {
+          id: string
+          kind:
+            | "agent"
+            | "directory"
+            | "code"
+            | "symbol"
+            | "test"
+            | "document"
+            | "dependency"
+            | "schema"
+            | "configuration"
+            | "instruction"
+            | "goal"
+            | "memory"
+            | "history"
+            | "tool"
+            | "attachment"
+            | "summary"
+            | "opportunity"
+          label: string
+          uri: string
+          hash: string
+          text: string
+          start: number
+          end: number
+          observed: number
+          method: string
+          status: "current" | "stale" | "unavailable"
+          inferred: boolean
+          evidence: Array<string>
+          detail: {
+            [key: string]: string
+          }
+        }
+        score: number
+        reason: string
+      }>
+      text: string
+      tokens: number
+      budget: number
+      estimator: string
+      omitted: Array<string>
+      reasons?: {
+        [key: string]: string
+      }
+      provider?: string
+      destination?: string
+      policy?: string
+      audit?: {
+        candidates: Array<{
+          source: string
+          hash: string
+          retrieval: string
+          score: number
+          state: "selected" | "omitted"
+          reason: string
+          channels?: Array<{
+            name:
+              | "keyword"
+              | "semantic"
+              | "collection-semantic"
+              | "domains"
+              | "memory"
+              | "relationships"
+              | "public-docs"
+              | "dependency-docs"
+            rank: number
+            score: number
+            reason: string
+          }>
+        }>
+        channels?: Array<{
+          name:
+            | "keyword"
+            | "semantic"
+            | "collection-semantic"
+            | "domains"
+            | "memory"
+            | "relationships"
+            | "public-docs"
+            | "dependency-docs"
+          state: "completed" | "fallback" | "disabled" | "unavailable" | "failed"
+          candidates: number
+          withheld: number
+          readiness?: {
+            state: "uninitialized" | "initializing" | "disabled" | "indexing" | "ready" | "paused" | "error" | "unknown"
+            searchable?: boolean
+          }
+        }>
+        total: number
+        unrecorded: number
+        withheld: number
+        budget: number
+        tokens: number
+        estimator: string
+        policy?: string
+        provider?: string
+        destination?: string
+      }
+    }
+    prompt: string
+    usage: {
+      input: number
+      output: number
+      cached: number
+      milliseconds: number
+      model: string
+      measured: boolean
+    }
+    warnings: Array<string>
+    questions?: Array<{
+      id: string
+      question: string
+      impact: string
+      options: Array<string>
+      optional: boolean
+    }>
+    session?: string
+    summary?: string
+    activity?: {
+      entries: Array<{
+        action: string
+        path?: string
+        detail: string
+      }>
+      counts?: {
+        [key: string]: number
+      }
+      total: number
+    }
+    model?: {
+      providerID: string
+      modelID: string
+    }
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/forge/validate"
+}
+
+export type ForgeValidateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgeValidateError = ForgeValidateErrors[keyof ForgeValidateErrors]
+
+export type ForgeValidateResponses = {
+  /**
+   * Success
+   */
+  200: {
+    valid: boolean
+  }
+}
+
+export type ForgeValidateResponse = ForgeValidateResponses[keyof ForgeValidateResponses]
+
+export type ForgeSearchData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    session?: string
+    q: string
+  }
+  url: "/forge/search"
+}
+
+export type ForgeSearchErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgeSearchError = ForgeSearchErrors[keyof ForgeSearchErrors]
+
+export type ForgeSearchResponses = {
+  /**
+   * Success
+   */
+  200: {
+    matches: Array<{
+      source: {
+        id: string
+        kind:
+          | "agent"
+          | "directory"
+          | "code"
+          | "symbol"
+          | "test"
+          | "document"
+          | "dependency"
+          | "schema"
+          | "configuration"
+          | "instruction"
+          | "goal"
+          | "memory"
+          | "history"
+          | "tool"
+          | "attachment"
+          | "summary"
+          | "opportunity"
+        label: string
+        uri: string
+        hash: string
+        text: string
+        start: number
+        end: number
+        observed: number
+        method: string
+        status: "current" | "stale" | "unavailable"
+        inferred: boolean
+        evidence: Array<string>
+        detail: {
+          [key: string]: string
+        }
+      }
+      score: number
+      reason: string
+    }>
+    text: string
+    tokens: number
+    budget: number
+    estimator: string
+    omitted: Array<string>
+    reasons?: {
+      [key: string]: string
+    }
+    provider?: string
+    destination?: string
+    policy?: string
+    audit?: {
+      candidates: Array<{
+        source: string
+        hash: string
+        retrieval: string
+        score: number
+        state: "selected" | "omitted"
+        reason: string
+        channels?: Array<{
+          name:
+            | "keyword"
+            | "semantic"
+            | "collection-semantic"
+            | "domains"
+            | "memory"
+            | "relationships"
+            | "public-docs"
+            | "dependency-docs"
+          rank: number
+          score: number
+          reason: string
+        }>
+      }>
+      channels?: Array<{
+        name:
+          | "keyword"
+          | "semantic"
+          | "collection-semantic"
+          | "domains"
+          | "memory"
+          | "relationships"
+          | "public-docs"
+          | "dependency-docs"
+        state: "completed" | "fallback" | "disabled" | "unavailable" | "failed"
+        candidates: number
+        withheld: number
+        readiness?: {
+          state: "uninitialized" | "initializing" | "disabled" | "indexing" | "ready" | "paused" | "error" | "unknown"
+          searchable?: boolean
+        }
+      }>
+      total: number
+      unrecorded: number
+      withheld: number
+      budget: number
+      tokens: number
+      estimator: string
+      policy?: string
+      provider?: string
+      destination?: string
+    }
+  }
+}
+
+export type ForgeSearchResponse = ForgeSearchResponses[keyof ForgeSearchResponses]
+
+export type ForgeRequestsData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+    session?: string
+    purpose?: string
+    offset?: string
+    limit?: string
+  }
+  url: "/forge/requests"
+}
+
+export type ForgeRequestsErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgeRequestsError = ForgeRequestsErrors[keyof ForgeRequestsErrors]
+
+export type ForgeRequestsResponses = {
+  /**
+   * Success
+   */
+  200: Array<{
+    id: string
+    operation?: string
+    selection?: {
+      candidates: Array<{
+        source: string
+        hash: string
+        retrieval: string
+        score: number
+        state: "selected" | "omitted"
+        reason: string
+        channels?: Array<{
+          name:
+            | "keyword"
+            | "semantic"
+            | "collection-semantic"
+            | "domains"
+            | "memory"
+            | "relationships"
+            | "public-docs"
+            | "dependency-docs"
+          rank: number
+          score: number
+          reason: string
+        }>
+      }>
+      channels?: Array<{
+        name:
+          | "keyword"
+          | "semantic"
+          | "collection-semantic"
+          | "domains"
+          | "memory"
+          | "relationships"
+          | "public-docs"
+          | "dependency-docs"
+        state: "completed" | "fallback" | "disabled" | "unavailable" | "failed"
+        candidates: number
+        withheld: number
+        readiness?: {
+          state: "uninitialized" | "initializing" | "disabled" | "indexing" | "ready" | "paused" | "error" | "unknown"
+          searchable?: boolean
+        }
+      }>
+      total: number
+      unrecorded: number
+      withheld: number
+      budget: number
+      tokens: number
+      estimator: string
+      policy?: string
+      provider?: string
+      destination?: string
+    }
+    retrieval?: {
+      started: number
+      updated: number
+      generation?: string
+      finished?: number
+      state: "running" | "completed" | "failed" | "cancelled"
+      phase: "setup" | "channels" | "selection"
+      channels: Array<{
+        name:
+          | "keyword"
+          | "semantic"
+          | "collection-semantic"
+          | "domains"
+          | "memory"
+          | "relationships"
+          | "public-docs"
+          | "dependency-docs"
+        state: "pending" | "running" | "completed" | "fallback" | "disabled" | "unavailable" | "failed" | "abandoned"
+        started?: number
+        finished?: number
+      }>
+    }
+    preparation?: string
+    lookup?: {
+      tool: string
+      call?: string
+      message?: string
+      query: string
+    }
+    lookups?: Array<string>
+    attempts?: Array<{
+      id: string
+      sequence: number
+      started: number
+      finished?: number
+      state: "pending" | "response" | "blocked" | "error"
+      status?: number
+      hash?: string
+      sent: Array<string>
+      membership: "unknown" | "matched"
+      response?: {
+        state: "pending" | "completed" | "cancelled" | "error" | "limited" | "unsupported"
+        bytes: number
+        usage?: {
+          format: "openai-chat" | "openai-responses"
+          input?: number
+          output?: number
+          total?: number
+          cached?: number
+          reasoning?: number
+          invalid?: boolean
+        }
+      }
+    }>
+    discarded?: number
+    session: string
+    root: string
+    generation: string
+    purpose: string
+    model: string
+    observed: number
+    entries: Array<{
+      source: string
+      kind?:
+        | "agent"
+        | "directory"
+        | "code"
+        | "symbol"
+        | "test"
+        | "document"
+        | "dependency"
+        | "schema"
+        | "configuration"
+        | "instruction"
+        | "goal"
+        | "memory"
+        | "history"
+        | "tool"
+        | "attachment"
+        | "summary"
+        | "opportunity"
+      label?: string
+      uri?: string
+      hash: string
+      text: string
+      stage: "retrieved" | "selected" | "assembled" | "sent" | "summarized" | "pruned"
+      tokens: number
+    }>
+    coverage: Array<string>
+    usage: {
+      input: number
+      output: number
+      cached: number
+      milliseconds: number
+      model: string
+      measured: boolean
+    }
+    state: "retrieving" | "assembled" | "sent" | "completed" | "failed"
+    failure?: {
+      code: "schema" | "json" | "cutoff" | "citation" | "transport" | "timeout" | "cancelled"
+      schema: "forge-enhancement-v2"
+      issues: Array<{
+        path: Array<
+          | "summary"
+          | "objective"
+          | "reuse"
+          | "inspect"
+          | "changes"
+          | "constraints"
+          | "hypotheses"
+          | "acceptance"
+          | "verification"
+          | "evidence"
+          | "questions"
+          | "kind"
+          | "question"
+          | "impact"
+          | "options"
+          | "statement"
+          | "reason"
+          | "action"
+          | "basis"
+          | number
+        >
+        expected: "string" | "array" | "object" | "hypothesis" | "decision" | "valid value"
+        actual: "missing" | "null" | "string" | "number" | "boolean" | "array" | "object" | "unknown"
+      }>
+      request?: string
+      model?: string
+      status?: number
+      reason?:
+        | "request-schema"
+        | "unsupported-format"
+        | "authentication"
+        | "permission"
+        | "credits"
+        | "rate-limit"
+        | "context-limit"
+        | "unavailable"
+        | "invalid-request"
+        | "network"
+        | "unknown"
+      finish?: "stop" | "length" | "content-filter" | "tool-calls" | "error" | "other" | "unknown"
+      usage?: {
+        input: number
+        output: number
+        cached: number
+        milliseconds: number
+        model: string
+        measured: boolean
+      }
+    }
+    finish?: "stop" | "length" | "content-filter" | "tool-calls" | "error" | "other" | "unknown"
+  }>
+}
+
+export type ForgeRequestsResponse = ForgeRequestsResponses[keyof ForgeRequestsResponses]
+
+export type ForgeRequestObservationData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/forge/requests-observation"
+}
+
+export type ForgeRequestObservationErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgeRequestObservationError = ForgeRequestObservationErrors[keyof ForgeRequestObservationErrors]
+
+export type ForgeRequestObservationResponses = {
+  /**
+   * Success
+   */
+  200: {
+    revision: string
+    since: number
+    before: "unknown"
+    deleted: boolean
+    admitted: number
+  }
+}
+
+export type ForgeRequestObservationResponse = ForgeRequestObservationResponses[keyof ForgeRequestObservationResponses]
+
+export type ForgeRequestData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    session?: string
+  }
+  url: "/forge/requests/{id}"
+}
+
+export type ForgeRequestErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgeRequestError = ForgeRequestErrors[keyof ForgeRequestErrors]
+
+export type ForgeRequestResponses = {
+  /**
+   * Success
+   */
+  200: {
+    request: {
+      id: string
+      operation?: string
+      selection?: {
+        candidates: Array<{
+          source: string
+          hash: string
+          retrieval: string
+          score: number
+          state: "selected" | "omitted"
+          reason: string
+          channels?: Array<{
+            name:
+              | "keyword"
+              | "semantic"
+              | "collection-semantic"
+              | "domains"
+              | "memory"
+              | "relationships"
+              | "public-docs"
+              | "dependency-docs"
+            rank: number
+            score: number
+            reason: string
+          }>
+        }>
+        channels?: Array<{
+          name:
+            | "keyword"
+            | "semantic"
+            | "collection-semantic"
+            | "domains"
+            | "memory"
+            | "relationships"
+            | "public-docs"
+            | "dependency-docs"
+          state: "completed" | "fallback" | "disabled" | "unavailable" | "failed"
+          candidates: number
+          withheld: number
+          readiness?: {
+            state: "uninitialized" | "initializing" | "disabled" | "indexing" | "ready" | "paused" | "error" | "unknown"
+            searchable?: boolean
+          }
+        }>
+        total: number
+        unrecorded: number
+        withheld: number
+        budget: number
+        tokens: number
+        estimator: string
+        policy?: string
+        provider?: string
+        destination?: string
+      }
+      retrieval?: {
+        started: number
+        updated: number
+        generation?: string
+        finished?: number
+        state: "running" | "completed" | "failed" | "cancelled"
+        phase: "setup" | "channels" | "selection"
+        channels: Array<{
+          name:
+            | "keyword"
+            | "semantic"
+            | "collection-semantic"
+            | "domains"
+            | "memory"
+            | "relationships"
+            | "public-docs"
+            | "dependency-docs"
+          state: "pending" | "running" | "completed" | "fallback" | "disabled" | "unavailable" | "failed" | "abandoned"
+          started?: number
+          finished?: number
+        }>
+      }
+      preparation?: string
+      lookup?: {
+        tool: string
+        call?: string
+        message?: string
+        query: string
+      }
+      lookups?: Array<string>
+      attempts?: Array<{
+        id: string
+        sequence: number
+        started: number
+        finished?: number
+        state: "pending" | "response" | "blocked" | "error"
+        status?: number
+        hash?: string
+        sent: Array<string>
+        membership: "unknown" | "matched"
+        response?: {
+          state: "pending" | "completed" | "cancelled" | "error" | "limited" | "unsupported"
+          bytes: number
+          usage?: {
+            format: "openai-chat" | "openai-responses"
+            input?: number
+            output?: number
+            total?: number
+            cached?: number
+            reasoning?: number
+            invalid?: boolean
+          }
+        }
+      }>
+      discarded?: number
+      session: string
+      root: string
+      generation: string
+      purpose: string
+      model: string
+      observed: number
+      entries: Array<{
+        source: string
+        kind?:
+          | "agent"
+          | "directory"
+          | "code"
+          | "symbol"
+          | "test"
+          | "document"
+          | "dependency"
+          | "schema"
+          | "configuration"
+          | "instruction"
+          | "goal"
+          | "memory"
+          | "history"
+          | "tool"
+          | "attachment"
+          | "summary"
+          | "opportunity"
+        label?: string
+        uri?: string
+        hash: string
+        text: string
+        stage: "retrieved" | "selected" | "assembled" | "sent" | "summarized" | "pruned"
+        tokens: number
+      }>
+      coverage: Array<string>
+      usage: {
+        input: number
+        output: number
+        cached: number
+        milliseconds: number
+        model: string
+        measured: boolean
+      }
+      state: "retrieving" | "assembled" | "sent" | "completed" | "failed"
+      failure?: {
+        code: "schema" | "json" | "cutoff" | "citation" | "transport" | "timeout" | "cancelled"
+        schema: "forge-enhancement-v2"
+        issues: Array<{
+          path: Array<
+            | "summary"
+            | "objective"
+            | "reuse"
+            | "inspect"
+            | "changes"
+            | "constraints"
+            | "hypotheses"
+            | "acceptance"
+            | "verification"
+            | "evidence"
+            | "questions"
+            | "kind"
+            | "question"
+            | "impact"
+            | "options"
+            | "statement"
+            | "reason"
+            | "action"
+            | "basis"
+            | number
+          >
+          expected: "string" | "array" | "object" | "hypothesis" | "decision" | "valid value"
+          actual: "missing" | "null" | "string" | "number" | "boolean" | "array" | "object" | "unknown"
+        }>
+        request?: string
+        model?: string
+        status?: number
+        reason?:
+          | "request-schema"
+          | "unsupported-format"
+          | "authentication"
+          | "permission"
+          | "credits"
+          | "rate-limit"
+          | "context-limit"
+          | "unavailable"
+          | "invalid-request"
+          | "network"
+          | "unknown"
+        finish?: "stop" | "length" | "content-filter" | "tool-calls" | "error" | "other" | "unknown"
+        usage?: {
+          input: number
+          output: number
+          cached: number
+          milliseconds: number
+          model: string
+          measured: boolean
+        }
+      }
+      finish?: "stop" | "length" | "content-filter" | "tool-calls" | "error" | "other" | "unknown"
+    }
+  }
+}
+
+export type ForgeRequestResponse = ForgeRequestResponses[keyof ForgeRequestResponses]
+
+export type ForgeDatabaseData = {
+  body?: {
+    [key: string]: unknown
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/forge/database"
+}
+
+export type ForgeDatabaseErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ForgeError
+   */
+  500: ForgeError
+}
+
+export type ForgeDatabaseError = ForgeDatabaseErrors[keyof ForgeDatabaseErrors]
+
+export type ForgeDatabaseResponses = {
+  /**
+   * Success
+   */
+  200: Array<{
+    id: string
+    kind:
+      | "agent"
+      | "directory"
+      | "code"
+      | "symbol"
+      | "test"
+      | "document"
+      | "dependency"
+      | "schema"
+      | "configuration"
+      | "instruction"
+      | "goal"
+      | "memory"
+      | "history"
+      | "tool"
+      | "attachment"
+      | "summary"
+      | "opportunity"
+    label: string
+    uri: string
+    hash: string
+    text: string
+    start: number
+    end: number
+    observed: number
+    method: string
+    status: "current" | "stale" | "unavailable"
+    inferred: boolean
+    evidence: Array<string>
+    detail: {
+      [key: string]: string
+    }
+  }>
+}
+
+export type ForgeDatabaseResponse = ForgeDatabaseResponses[keyof ForgeDatabaseResponses]
 
 export type IndexingStatusData = {
   body?: never

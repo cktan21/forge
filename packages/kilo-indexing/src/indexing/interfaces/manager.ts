@@ -1,6 +1,7 @@
 import type { VectorStoreSearchResult } from "./vector-store"
 import type { Emitter } from "../runtime"
 import type { IndexingTelemetryEvent } from "./telemetry"
+import type { SearchScope } from "../search-scope"
 
 export interface ICodeIndexManager {
   onProgressUpdate: Emitter<{
@@ -23,7 +24,12 @@ export interface ICodeIndexManager {
   startIndexing(): Promise<void>
   stopWatcher(): void
   clearIndexData(): Promise<void>
-  searchIndex(query: string, directoryPrefix?: string): Promise<VectorStoreSearchResult[]>
+  searchIndex(
+    query: string,
+    directoryPrefix?: string,
+    scope?: SearchScope,
+    signal?: AbortSignal,
+  ): Promise<VectorStoreSearchResult[]>
   getCurrentStatus(): {
     systemStatus: IndexingState
     message?: string

@@ -94,6 +94,22 @@ if (historySdkPatched === generatedSdk) {
 }
 await Bun.write("./src/v2/gen/sdk.gen.ts", historySdkPatched)
 
+// kilocode_change start - preserve observed SSE cancellation across regeneration
+const stream = Bun.file("./src/v2/gen/core/serverSentEvents.gen.ts")
+const original = await stream.text()
+const patched = original.replace(
+  /const abortHandler = \(\) => \{\s*try \{\s*reader\.cancel\(\);?\s*\} catch \{\s*\/\/ noop\s*\}\s*\}/,
+  `const abortHandler = () => {
+          // The response may already be errored when cancellation reaches the decoder.
+          void reader.cancel(signal.reason).catch((error: unknown) => {
+            if (error !== signal.reason) onSseError?.(error)
+          })
+        }`,
+)
+if (patched === original) throw new Error("SSE reader cancellation patch did not apply")
+await Bun.write(stream, patched)
+// kilocode_change end
+
 // The legacy SDK generator is retired, but this public Config type remains exported.
 // Keep Kilo's released sandbox settings aligned with the current generated client.
 const legacyTypesPath = "./src/gen/types.gen.ts"

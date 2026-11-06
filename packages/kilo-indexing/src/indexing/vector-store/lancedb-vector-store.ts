@@ -1,7 +1,7 @@
 import { createHash } from "crypto"
 import * as path from "path"
 import type { Connection, Table, VectorQuery } from "@lancedb/lancedb"
-import type { IVectorStore } from "../interfaces/vector-store"
+import type { IVectorStore, VectorFilter } from "../interfaces/vector-store"
 import type { Payload, VectorStoreSearchResult } from "../interfaces"
 import { DEFAULT_MAX_SEARCH_RESULTS, DEFAULT_SEARCH_MIN_SCORE } from "../constants"
 import fs from "fs"
@@ -424,12 +424,22 @@ export class LanceDBVectorStore implements IVectorStore {
     return hasValidKeys
   }
 
+  async candidates(paths: readonly string[], limit: number): Promise<VectorStoreSearchResult[]> {
+    if (!paths.length) return []
+    const table = await this.getTable()
+    const filter = `\`filePath\` IN (${paths.map((item) => `'${this.escapeSqlString(item)}'`).join(", ")})`
+    const rows = await table.query().where(filter).select(["id", "filePath", "fileHash", "codeChunk", "startLine", "endLine"]).limit(limit).toArray()
+    return rows.map((row) => ({ id: row.id, score: 0, payload: { filePath: row.filePath, fileHash: row.fileHash, codeChunk: row.codeChunk, startLine: row.startLine, endLine: row.endLine } }))
+  }
+
   async search(
     queryVector: number[],
     directoryPrefix?: string,
     minScore?: number,
     maxResults?: number,
+    mask?: VectorFilter,
   ): Promise<VectorStoreSearchResult[]> {
+    if (mask && (!mask.paths.length || !mask.ids.length)) return []
     try {
       const table = await this.getTable()
       const actualMinScore = minScore ?? DEFAULT_SEARCH_MIN_SCORE
@@ -440,6 +450,11 @@ export class LanceDBVectorStore implements IVectorStore {
       if (directoryPrefix) {
         const escapedPrefix = this.escapeSqlLikePattern(directoryPrefix)
         filter = `\`filePath\` LIKE '${escapedPrefix}%'`
+      }
+      if (mask) {
+        const paths = `\`filePath\` IN (${mask.paths.map((item) => `'${this.escapeSqlString(item)}'`).join(", ")})`
+        const ids = `id IN (${mask.ids.map((item) => `'${this.escapeSqlString(String(item))}'`).join(", ")})`
+        filter = [filter, paths, ids].filter(Boolean).join(" AND ")
       }
 
       // Perform vector search with distance range filtering

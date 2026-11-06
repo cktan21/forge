@@ -7,6 +7,8 @@ import { DEFAULT_VECTOR_STORE, INITIAL_MANAGER_RECOVERY_DELAY_MS, MAX_MANAGER_RE
 import { CodeIndexStateManager } from "./state-manager"
 import { CodeIndexServiceFactory } from "./service-factory"
 import { CodeIndexSearchService } from "./search-service"
+import type { SearchScope } from "./search-scope"
+import { wait } from "./search-wait"
 import { CodeIndexOrchestrator } from "./orchestrator"
 import { CacheManager } from "./cache-manager"
 import { Emitter } from "./runtime"
@@ -468,12 +470,13 @@ export class CodeIndexManager {
     return { ...status, workspacePath: this.workspacePath }
   }
 
-  public async searchIndex(query: string, directoryPrefix?: string): Promise<VectorStoreSearchResult[]> {
+  public async searchIndex(query: string, directoryPrefix?: string, scope?: SearchScope, signal?: AbortSignal): Promise<VectorStoreSearchResult[]> {
+    signal?.throwIfAborted()
     if (!this.isFeatureEnabled) return []
-    await this.refreshBaseline()
+    await wait(() => this.refreshBaseline(), signal)
     if (this.waiting()) return []
     this.assertInitialized()
-    return this._searchService!.searchIndex(query, directoryPrefix)
+    return this._searchService!.searchIndex(query, directoryPrefix, scope, signal)
   }
 
   private async refreshBaseline(): Promise<void> {
