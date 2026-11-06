@@ -11,6 +11,7 @@ export type EventSource = {
 export const { use: useSDK, provider: SDKProvider } = createSimpleContext({
   name: "SDK",
   init: (props: {
+    browser?: () => Promise<string> // kilocode_change
     url: string
     directory?: string
     fetch?: typeof fetch
@@ -146,6 +147,8 @@ export const { use: useSDK, provider: SDKProvider } = createSimpleContext({
       event: emitter,
       fetch: props.fetch ?? fetch,
       url: props.url,
+      browser: props.browser, // kilocode_change
+      headers: props.headers, // kilocode_change
     }
   },
 })

@@ -451,6 +451,11 @@ export const TuiThreadCommand = cmd({
             events: createEventSource(client),
           }
 
+      // kilocode_change start - expose this worker once for the local Forge map
+      let browser: Promise<string> | undefined
+      const expose = () => external ? Promise.resolve(transport.url) : (browser ??= (async () => (await client.call("server", { port: 0, hostname: "127.0.0.1", mdns: false })).url)())
+      // kilocode_change end
+
       // kilocode_change - upstream validates here, but --cloud-fork's session id is only local after
       // the import below; the guarded validateSession further down covers both paths.
       setTimeout(() => {
@@ -499,6 +504,7 @@ export const TuiThreadCommand = cmd({
           {
             // kilocode_change - shared lazy loader also supports daemon attach
             url: transport.url,
+            browser: expose, // kilocode_change
             async onSnapshot() {
               const tui = writeHeapSnapshot("tui.heapsnapshot")
               const server = await client.call("snapshot", undefined)

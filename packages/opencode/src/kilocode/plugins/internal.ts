@@ -7,6 +7,7 @@ import Permissions from "@/kilocode/plugins/permissions"
 import SidebarFooter from "@/kilocode/plugins/sidebar-footer"
 import MemoryStatus from "@/kilocode/plugins/memory-status"
 import MemoryPalette from "@/kilocode/plugins/memory-palette"
+import Forge from "@/kilocode/plugins/forge"
 import SidebarProcesses from "@/kilocode/plugins/sidebar-background-processes"
 import SidebarIndexing from "@/kilocode/plugins/sidebar-indexing"
 import SidebarPr from "@/kilocode/plugins/sidebar-pr"
@@ -27,6 +28,7 @@ const plugins = [
   SidebarFooter,
   MemoryStatus,
   MemoryPalette,
+  Forge,
   SidebarProcesses,
   SidebarIndexing,
   SidebarPr,

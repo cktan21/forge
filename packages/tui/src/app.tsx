@@ -27,7 +27,8 @@ import {
   untrack, // kilocode_change
 } from "solid-js"
 import { TuiPathsProvider, TuiStartupProvider, TuiTerminalEnvironmentProvider, useTuiStartup } from "./context/runtime"
-import { DialogProvider, useDialog } from "./ui/dialog"
+import { useDialog } from "./ui/dialog" // kilocode_change - provider is composed with the shared prompt reference
+import { ForgeComposerProvider } from "./kilocode/forge/provider" // kilocode_change
 import { DialogProvider as DialogProviderList } from "./component/dialog-provider"
 import { ErrorComponent } from "./component/error-component"
 import { PluginRouteMissing } from "./component/plugin-route-missing"
@@ -68,7 +69,7 @@ import { KVProvider, useKV } from "./context/kv"
 import * as Model from "./util/model"
 import { ArgsProvider, useArgs, type Args } from "./context/args"
 import open from "open"
-import { PromptRefProvider, usePromptRef } from "./context/prompt"
+import { usePromptRef } from "./context/prompt" // kilocode_change
 import type { TuiConfig } from "./config"
 import { createTuiApiAdapters } from "./plugin/adapters"
 import { createTuiApi } from "./plugin/api"
@@ -148,6 +149,7 @@ const appBindingCommands = [
 
 export type TuiInput = {
   onDirectory?: (directory: string) => void // kilocode_change - local project switch after clean shutdown
+  browser?: () => Promise<string> // kilocode_change - expose the active backend for Forge's local map
   url: string
   args: Args
   config: TuiConfig.Resolved
@@ -313,6 +315,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
                                       <PluginRuntimeProvider value={pluginRuntime}>
                                         <SDKProvider
                                           url={input.url}
+                                          browser={input.browser} // kilocode_change
                                           directory={input.directory}
                                           fetch={input.fetch}
                                           headers={input.headers}
@@ -325,12 +328,12 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
                                                   <ThemeProvider mode={mode}>
                                                     <LocalProvider>
                                                       <PromptStashProvider>
-                                                        <DialogProvider>
+                                                        {/* kilocode_change - dialogs must share the active composer reference */}
+                                                        <ForgeComposerProvider>{/* kilocode_change */}
                                                           {/* kilocode_change start */}
                                                           <NudgeProvider>
                                                             <FrecencyProvider>
                                                               <PromptHistoryProvider>
-                                                                <PromptRefProvider>
                                                                   <EditorContextProvider>
                                                                     <LocationProvider>
                                                                       <App
@@ -339,12 +342,11 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
                                                                       />
                                                                     </LocationProvider>
                                                                   </EditorContextProvider>
-                                                                </PromptRefProvider>
                                                               </PromptHistoryProvider>
                                                             </FrecencyProvider>
                                                           </NudgeProvider>
                                                           {/* kilocode_change end */}
-                                                        </DialogProvider>
+                                                        </ForgeComposerProvider>{/* kilocode_change */}
                                                       </PromptStashProvider>
                                                     </LocalProvider>
                                                   </ThemeProvider>

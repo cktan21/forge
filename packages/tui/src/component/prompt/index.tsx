@@ -26,6 +26,7 @@ import { useProject } from "../../context/project"
 import { useSync } from "../../context/sync"
 import { useNudge } from "@/kilocode/cli/cmd/tui/context/nudge" // kilocode_change
 import { useEvent } from "../../context/event"
+import { forgePrompt } from "../../kilocode/forge/prompt" // kilocode_change
 import { useDirectoryPrompt } from "../../kilocode/directory-prompt" // kilocode_change
 import { editorSelectionKey, useEditorContext, type EditorSelection } from "../../context/editor"
 import { normalizePromptContent, openEditor } from "../../editor"
@@ -664,6 +665,7 @@ export function Prompt(props: PromptProps) {
       input.blur()
     },
     set(prompt) {
+      if (prompt.mode != null) setStore("mode", prompt.mode) // kilocode_change - apply explicit mode when Forge replaces a draft
       input.setText(prompt.input)
       setStore("prompt", prompt)
       restoreExtmarksFromParts(prompt.parts)
@@ -1066,6 +1068,7 @@ export function Prompt(props: PromptProps) {
     if (auto()?.visible) return false
     if (!store.prompt.input) return false
     if (!steer() && store.mode === "normal" && await directory.submit(store.prompt.input)) return true // kilocode_change
+    if (forgePrompt(store.prompt.input, dialog, steer())) return true // kilocode_change
     // kilocode_change start - in-memory cost alert command
     if (!steer() && costAlert.handle(store.prompt.input.trim())) return true
     // kilocode_change end
