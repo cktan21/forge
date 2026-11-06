@@ -705,6 +705,29 @@ Options:
   --json     output profile as JSON  [boolean] [default: false]
 ```
 
+## kilo forge-usage
+
+```
+export recorded collection embedding attempts from an existing backend (no model calls)
+
+Positionals:
+  url  HTTP(S) backend origin; does not start a server  [string]
+
+Options:
+  --help       Show help  [boolean]
+  --version    Show version number  [boolean]
+  --directory  workspace directory on that backend  [string] [default: "."]
+  --session    exact session scope; empty means workspace scope  [string] [default: ""]
+  --max        maximum exported attempts (1-10000); output discloses truncation  [number] [default: 1000]
+  --after      resume from an earlier export's next cursor  [string]
+  --before     preview pruning completed attempts before this Unix-millisecond cutoff  [number]
+  --keep       retain at least the newest admitted attempts (0-1000000); required with --before  [number]
+  --revision   apply a previously returned retention preview revision; requires --confirm DELETE  [string]
+  --confirm    explicit DELETE confirmation for --revision; never inferred  [string]
+  --timeout    total read deadline in seconds (1-300)  [number] [default: 30]
+  --output     new JSON file, owner-only and never overwritten; defaults to stdout  [string]
+```
+
 ## kilo stats
 
 ```
@@ -789,9 +812,9 @@ manage pull requests
 
 Commands:
   kilo pr checkout <number>  fetch and checkout a GitHub PR branch, then run kilo
-  kilo pr link <url>         link the current worktree to a pull request
-  kilo pr unlink             clear the linked pull request
-  kilo pr status             show the linked pull request
+  kilo pr link <url>         link a session to a pull request
+  kilo pr unlink             clear a session's linked pull request
+  kilo pr status             show a session's linked pull request
 
 Options:
   --help     Show help  [boolean]
@@ -814,34 +837,37 @@ Options:
 ### kilo pr link
 
 ```
-link the current worktree to a pull request
+link a session to a pull request
 
 Positionals:
   url  PR URL to link  [string]
 
 Options:
-  --help     Show help  [boolean]
-  --version  Show version number  [boolean]
+      --help     Show help  [boolean]
+      --version  Show version number  [boolean]
+  -s, --session  session id to apply the PR link to  [string]
 ```
 
 ### kilo pr unlink
 
 ```
-clear the linked pull request
+clear a session's linked pull request
 
 Options:
-  --help     Show help  [boolean]
-  --version  Show version number  [boolean]
+      --help     Show help  [boolean]
+      --version  Show version number  [boolean]
+  -s, --session  session id to apply the PR link to  [string]
 ```
 
 ### kilo pr status
 
 ```
-show the linked pull request
+show a session's linked pull request
 
 Options:
-  --help     Show help  [boolean]
-  --version  Show version number  [boolean]
+      --help     Show help  [boolean]
+      --version  Show version number  [boolean]
+  -s, --session  session id to apply the PR link to  [string]
 ```
 
 ## kilo session

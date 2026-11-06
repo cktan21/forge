@@ -76,3 +76,10 @@ packages/*/.kilo/tui.jsonc
 # Test Artifacts
 packages/app/.artifacts/
 packages/opencode/.artifacts/
+
+# Local Forge run outputs and packaged builds
+/reports/
+/artifacts/forge-tui-*/
+/artifacts/forge-tui-*.zip
+/packages/kilo-forge-ui/test-results/
+/packages/kilo-forge-ui/playwright-report/
