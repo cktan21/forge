@@ -6,6 +6,7 @@
   "type": "module",
   "packageManager": "bun@1.4.2",
   "scripts": {
+    "forge": "bun run script/kilocode/forge.ts",
     "dev": "KILO_CLIENT=cli bun run --cwd packages/opencode --conditions=node src/index.ts",
     "dev:watch": "bun run script/kilocode/dev-watch.ts",
     "dev:stats": "bun sst shell --stage=production -- bun run --cwd packages/stats/app dev",
@@ -99,6 +100,7 @@
   },
   "devDependencies": {
     "@tsconfig/bun": "catalog:",
+    "@xterm/xterm": "6.0.0",
     "@types/mime-types": "3.0.1",
     "@typescript/native-preview": "catalog:",
     "glob": "13.0.5",

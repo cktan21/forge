@@ -6,30 +6,18 @@ Run from the repository root:
 bun run dev:watch /path/to/project
 ```
 
-From another directory, select the repository containing the script:
+From another directory:
 
 ```sh
 bun run --cwd /path/to/forge dev:watch /path/to/project
 ```
 
-`dev` runs source once. `dev:watch` runs the same source entry point and restarts
-the CLI in the same terminal after changes to workspace `src` folders or
-`package.json`, `tsconfig.json`, `bunfig.toml`, and the root `bun.lock`. Workspace
-source is watched even when it is loaded only by a background worker. Build
-output, test folders outside `src`, and project files outside these paths do not
-trigger restarts. Restart the watcher after adding a workspace or a new `src`
-folder, or changing the watch launcher itself.
+Watch mode runs the local source CLI and restarts after changes to workspace `src` directories, package/configuration files, or `bun.lock`. Saves are debounced for 250 ms. The old process receives SIGTERM and is force-stopped after eight seconds if necessary.
 
-Saves are debounced for 250 milliseconds. Before restarting, the launcher sends
-SIGTERM and waits for the old process to exit. A stuck process is force-stopped
-after eight seconds. A failed launch waits for another edit; exiting the TUI
-normally also exits the watcher.
+Browser assets are rebuilt before every launch/restart. A failed build waits for another edit instead of launching stale assets. Generated output and tests outside `src` do not trigger restart loops. Restart the watcher after adding a workspace/source directory or changing the watcher itself.
 
-Watch mode disables daemon attachment and auto-updates so the TUI uses the local
-source backend. It uses your normal Kilo settings and saved sessions.
+This is restart-on-save, not state-preserving hot reload. Active work is interrupted, unsent input is lost, and the selected chat/directory is not automatically restored; original CLI arguments are reused. Normal TUI exit stops the watcher.
 
-This is restart-on-save, not state-preserving hot reload. Active work is
-interrupted, unsent input is lost, and the currently selected chat and directory
-are not automatically restored. Each restart reuses the original CLI arguments.
-Avoid using watch mode for important running tasks. Embedded web assets that
-require their own build are not rebuilt by this command.
+Watch mode disables daemon attachment and auto-updates but uses normal settings and saved sessions. Plain `dev` does not build browser assets and may attach to an existing daemon. `forge` builds assets for a one-shot launch while retaining normal daemon behavior.
+
+For isolated PTY and browser-to-terminal verification, see [Forge testing](../../packages/kilo-forge/TESTING.md). Those opt-in probes are separate from normal development commands.

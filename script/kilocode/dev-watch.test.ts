@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 
-async function fixture() {
+async function fixture(prepare = false) {
   const root = await mkdtemp(path.join(os.tmpdir(), "kilo-watch-"))
   for (const dir of ["packages/cli/src", "packages/worker/src", "packages/cli/dist", "packages/cli/test"]) {
     await mkdir(path.join(root, dir), { recursive: true })
@@ -34,7 +34,11 @@ async function fixture() {
   const options = { root, cwd: root, cmd: [process.execPath, "-e", script] }
   const child = Bun.spawn([process.execPath, "-e", `
     import { watch } from ${JSON.stringify(entry)}
-    process.exitCode = await watch(${JSON.stringify(options)})
+    import { appendFileSync, readFileSync } from "node:fs"
+    process.exitCode = await watch({ ...${JSON.stringify(options)}, ${prepare ? `prepare: async () => {
+      appendFileSync(${JSON.stringify(log)}, "prepare\\n")
+      if (readFileSync(${JSON.stringify(source)}, "utf8") === "bad") throw new Error("Invalid browser source")
+    }` : ""} })
   `], { cwd: root, stdin: "ignore", stdout: "ignore", stderr: "pipe" })
   const errors = new Response(child.stderr).text()
   async function events() {
@@ -122,6 +126,22 @@ test("stops watching when the TUI exits normally", async () => {
     const lines = await run.until((lines) => lines.length === 1)
     process.kill(Number(lines.at(0)!.split(":").at(1)), "SIGINT")
     expect(await run.child.exited).toBe(0)
+  } finally {
+    await run.close()
+  }
+}, 15000)
+
+test("build preparation runs before launch and recovers after a failed rebuild", async () => {
+  const run = await fixture(true)
+  try {
+    await run.until((lines) => lines.length === 2)
+    expect((await run.events()).at(0)).toBe("prepare")
+    await run.write("packages/cli/src/index.ts", "bad")
+    await run.until((lines) => lines.filter((line) => line === "prepare").length === 2)
+    expect((await run.events()).filter((line) => line.startsWith("start:"))).toHaveLength(1)
+    await run.write("packages/cli/src/index.ts", "fixed")
+    const lines = await run.until((lines) => lines.filter((line) => line.startsWith("start:")).length === 2)
+    expect(lines.at(-2)).toBe("prepare")
   } finally {
     await run.close()
   }

@@ -4,7 +4,7 @@ import path from "node:path"
 const configs = new Set(["package.json", "bunfig.toml", "tsconfig.json", "bun.lock"])
 const ignored = new Set(["node_modules", "dist", ".git", ".cache"])
 
-export async function watch(opts: { root: string; cmd: string[]; cwd: string; env?: NodeJS.ProcessEnv }) {
+export async function watch(opts: { root: string; cmd: string[]; cwd: string; env?: NodeJS.ProcessEnv; prepare?: () => Promise<void> }) {
   const watchers: FSWatcher[] = []
   const terminal = process.stdin.isTTY && process.stdout.isTTY
   const mode =
@@ -92,6 +92,15 @@ export async function watch(opts: { root: string; cmd: string[]; cwd: string; en
       if (stopping) break
       changed = false
       wake = Promise.withResolvers<void>()
+      const ready = await Promise.resolve().then(() => opts.prepare?.()).then(() => true, (err) => {
+        console.error("[dev:watch] Preparation failed. Waiting for an edit to retry:", err)
+        return false
+      })
+      if (!ready) {
+        if (!stopping) await wake.promise
+        continue
+      }
+      if (stopping) break
       child = Bun.spawn(opts.cmd, {
         cwd: opts.cwd,
         env: opts.env ?? process.env,
@@ -132,5 +141,10 @@ if (import.meta.main) {
     cwd: path.join(root, "packages/opencode"),
     cmd: [process.execPath, "run", "--conditions=node", "src/index.ts", ...args],
     env: { ...process.env, KILO_CLIENT: "cli", KILO_NO_DAEMON: "1", KILO_DISABLE_AUTOUPDATE: "true" },
+    prepare: async () => {
+      console.error("[dev:watch] Building Forge browser assets...")
+      const child = Bun.spawn([process.execPath, "run", "build"], { cwd: path.join(root, "packages/kilo-forge-ui"), stdin: "ignore", stdout: "inherit", stderr: "inherit" })
+      if (await child.exited !== 0) throw new Error("Forge browser asset build failed")
+    },
   })
 }
