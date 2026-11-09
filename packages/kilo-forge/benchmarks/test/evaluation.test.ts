@@ -62,6 +62,16 @@ test("three-arm order balances positions, predecessors and repeated tasks", () =
   }
 })
 
+test("four-arm order balances positions and every immediate predecessor", () => {
+  const rows = Array.from({ length: 4 }, (_, index) => order(index, 1, true))
+  for (const arm of ["normal", "generic", "forge", "investigative"]) {
+    for (let position = 0; position < 4; position++) expect(rows.filter((row) => row.at(position) === arm)).toHaveLength(1)
+    for (const other of ["normal", "generic", "forge", "investigative"].filter((name) => name !== arm)) {
+      expect(rows.flatMap((row) => row.slice(1).map((next, index) => [row.at(index), next])).filter(([first, next]) => first === arm && next === other)).toHaveLength(1)
+    }
+  }
+})
+
 test("failed phases record elapsed time and classify provider failures separately from workflow", async () => {
   const durations: number[] = []
   await rejects(
@@ -188,6 +198,9 @@ test("request coverage requires a fresh empty start and a coherent complete reta
 
 for (const scenario of [
   "ready",
+  "tools",
+  "tools-cost",
+  "investigative",
   "malformed",
   "missing",
   "quota",
@@ -211,6 +224,7 @@ for (const scenario of [
 ] as const) {
   test(`offline runner preserves comparable attempts and accounting: ${scenario}`, async () => {
     const task = tasks.at(0)!
+    const ablation = scenario.startsWith("tools")
     const model = settings.model!
     const split = model.indexOf("/")
     const reference = { providerID: model.slice(0, split), modelID: model.slice(split + 1) }
@@ -225,13 +239,26 @@ for (const scenario of [
       tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
       cost: 0,
     }
+    const finding = { id: "a".repeat(24), title: "Inspect atomic batching", kind: "diagnostic", support: "unresolved", explanation: "The implementation needs checking.", benefit: "Establish a grounded change.", evidence: [], counterevidence: [], unknowns: ["Runtime behavior unknown"], action: "Inspect and verify batching.", verification: ["Run the existing regression."] }
+    const workshop = {
+      version: 1, id: crypto.randomUUID(), revision: crypto.randomUUID(), digest: "b".repeat(64), root: "", session: "investigative",
+      original: task.prompt, answers: "", feedback: "", model: reference, destination: "fixture", policy: "fixture",
+      state: "findings_ready", intent: task.prompt, summary: "Inspect batching", findings: [finding], questions: [], limitations: [],
+      observations: [], turns: 1, calls: 0, bytes: 1000, started: 1, updated: 2, usage: measured,
+    }
+    const prepared = {
+      version: 1, id: crypto.randomUUID(), revision: crypto.randomUUID(), digest: "c".repeat(64), root: "", session: "investigative", scope: "investigative",
+      investigation: workshop.id, parent: workshop.revision, requirements: [{ id: "requirement", label: "Original request", text: task.prompt }],
+      findings: [finding], sources: [], dependencies: [], model: reference, destination: "fixture", policy: "fixture", state: "ready",
+      prompt: `${task.prompt}\nInspect atomic batching and run regressions.`, hash: "d".repeat(64), started: 1, updated: 2, usage: measured,
+    }
     const assistant = {
       id: "answer",
       role: "assistant",
       ...reference,
       time: { created: 1, completed: 2 },
       tokens: { input: 200, output: 30, reasoning: 0, cache: { read: 0, write: 0 } },
-      cost: 0.001,
+      cost: scenario === "tools" ? 0 : 0.001,
       ...(scenario === "zero-coding" || scenario === "explicit-zero-coding" ? missing : {}),
     }
     const draft = {
@@ -302,7 +329,9 @@ for (const scenario of [
             all: [
               {
                 id: reference.providerID,
-                models: { [reference.modelID]: { cost: { input: 1, output: 2, cache: { read: 0.5, write: 1 } } } },
+                models: { [reference.modelID]: ablation
+                  ? { id: reference.modelID, isFree: true, cost: { input: 0, output: 0, cache: { read: 0, write: 0 } } }
+                  : { cost: { input: 1, output: 2, cache: { read: 0.5, write: 1 } } } },
               },
             ],
             default: {},
@@ -379,6 +408,14 @@ for (const scenario of [
           })
         }
         if (url.pathname === "/forge/validate") return Response.json({ valid: true })
+        if (url.pathname === "/forge/investigations" || url.pathname === "/forge/preparations/write") {
+          const writing = url.pathname.endsWith("/write")
+          retain({ id: writing ? "writer" : "investigator", root, session: "investigative", observed: Date.now(),
+            purpose: writing ? "investigation-write" : "investigate", generation: "fixture", entries: [], coverage: [], model, state: "completed", usage: measured })
+          return Response.json({ ...(writing ? prepared : workshop), root })
+        }
+        if (url.pathname === "/forge/preparations") return Response.json({ ...prepared, root, state: "selected" })
+        if (url.pathname === "/forge/preparations/bind") return Response.json({ id: prepared.id, revision: prepared.revision, hash: prepared.hash, session: "investigative" })
         if (url.pathname === "/forge/requests-observation") {
           const retained = records.filter((record) => record.root === root)
           return Response.json({
@@ -392,11 +429,15 @@ for (const scenario of [
             admitted: retained.length + (scenario === "lost-history" && retained.length > 0 ? 1 : 0),
           })
         }
-        if (url.pathname === "/forge/requests") return Response.json(records.filter((record) => record.root === root))
+        if (url.pathname === "/forge/requests") {
+          const session = url.searchParams.get("session") ?? ""
+          return Response.json(records.filter((record) => record.root === root && record.session === session))
+        }
         if (url.pathname.endsWith("/abort")) return Response.json(true)
         if (url.pathname.endsWith("/message") && request.method === "POST") {
-          const body: { parts: Array<{ text: string }>; model: unknown; tools: Record<string, boolean> } =
+          const body: { parts: Array<{ text: string; metadata?: unknown }>; model: unknown; tools: Record<string, boolean> } =
             await request.json()
+          if (sessions.get(root) === "investigative") expect(body.parts.at(0)?.metadata).toMatchObject({ forgePreparation: { id: prepared.id, revision: prepared.revision, hash: prepared.hash } })
           prompts.push({ arm: sessions.get(root)!, text: body.parts.at(0)!.text, model: body.model, tools: body.tools })
           retain({
             id: `coding-${root}`,
@@ -468,8 +509,10 @@ for (const scenario of [
         password: "offline",
         trials: scenario.startsWith("history-503") ? 2 : 1,
         limit: 1,
+        investigative: scenario === "investigative",
+        tools: ablation,
       })
-      if (scenario === "quota" || scenario === "coding-timeout" || scenario.startsWith("history-503"))
+      if (scenario === "quota" || scenario === "coding-timeout" || scenario === "tools-cost" || scenario.startsWith("history-503"))
         await rejects(run, /partial report saved/)
       else outputs.add(await run)
       const output = [...outputs].at(0)!
@@ -496,7 +539,7 @@ for (const scenario of [
           state: string
         }>
       } = await Bun.file(path.join(output, "results.json")).json()
-      expect(result.version).toBe(2)
+      expect(result.version).toBe(ablation ? 4 : scenario === "investigative" ? 3 : 2)
       expect(result.provenance.revision).toMatch(/^[a-f0-9]{40}$/)
       expect(result.provenance.configuration).toHaveLength(64)
       expect(result.provenance.harness).toHaveLength(64)
@@ -506,9 +549,9 @@ for (const scenario of [
       const summary = summarize(result, true)
       for (const item of prompts) {
         expect(item.text).toContain(task.prompt)
-        if (item.arm === "normal") expect(item.text).toBe(task.prompt)
+        if (item.arm === "normal" || ablation) expect(item.text).toBe(task.prompt)
         expect(item.model).toEqual(reference)
-        expect(Object.values(item.tools).every((value) => value === (item.arm === "forge"))).toBe(true)
+        expect(Object.values(item.tools).every((value) => value === (scenario !== "investigative" && item.arm === "forge"))).toBe(true)
       }
       const last = result.rows.at(-1)!
       if (scenario.startsWith("history-503")) {
@@ -608,6 +651,23 @@ for (const scenario of [
         expect(last.tokens).toBe(scenario === "malformed" ? 120 : null)
         expect(last.prepared.input).toBe(scenario === "malformed" ? 100 : 0)
         expect(prompts).toHaveLength(2)
+      } else if (scenario === "investigative") {
+        expect(prompts).toHaveLength(4)
+        expect(result.rows.every((row) => row.known.preparation && row.known.coding)).toBe(true)
+        expect(summary.arms.map((arm) => arm.tokens)).toEqual([230, 350, 350, 470])
+      } else if (scenario === "tools") {
+        expect(prompts.map((item) => item.arm)).toEqual(["normal", "forge"])
+        expect(result.rows.every((row) => row.preparation === 0 && row.prepared.input === 0)).toBe(true)
+        expect(summary.arms.map((arm) => arm.tokens)).toEqual([230, 230])
+        expect(summary.arms.map((arm) => arm.cost)).toEqual([0, 0])
+        expect(records.every((record) => record.purpose === "coding")).toBe(true)
+        expect(summary.text).toContain("Tools-only ablation")
+        expect(summary.text).toContain("no completed Forge tool use")
+      } else if (scenario === "tools-cost") {
+        expect(prompts).toHaveLength(1)
+        expect(last.failure).toBe("infrastructure")
+        expect(last.error).toContain("nonzero model cost")
+        expect(summary.comparison?.pairs).toBe(0)
       } else {
         expect(prompts).toHaveLength(3)
         expect(last.tokens).toBe(350)

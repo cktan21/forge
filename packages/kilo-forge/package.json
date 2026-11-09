@@ -11,7 +11,10 @@
     "test:evaluation": "bun test ./benchmarks/test --timeout 30000",
     "test:all": "bun run test && bun run test:evaluation",
     "benchmark": "bun benchmarks/run.ts",
-    "evaluate": "bun benchmarks/evaluate.ts"
+    "evaluate": "bun benchmarks/evaluate.ts",
+    "evaluate:tools": "bun benchmarks/ablation.ts",
+    "evaluate:free": "bun benchmarks/free.ts",
+    "evaluate:chatgpt": "bun benchmarks/chatgpt.ts"
   },
   "dependencies": {
     "@kilocode/sdk": "workspace:*",

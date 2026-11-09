@@ -23,6 +23,12 @@ import {
   type Failure,
 } from "./harness"
 import { isDeepStrictEqual } from "node:util"
+import { randomUUID } from "node:crypto"
+import { Investigation } from "../src/investigation"
+import { Prepared, type PreparationBinding } from "../src/writing"
+import { metadata as handoff } from "../src/handoff"
+import { variants } from "./harness"
+import { arms as paired, free, subscription, plugins, order as alternate, tools as forge } from "./ablation"
 
 type Row = {
   task: string
@@ -61,13 +67,13 @@ type Row = {
   warnings: string[]
   tools: Array<{ tool: string; status: string }>
   grading: Awaited<ReturnType<typeof grade>> | null
+  investigation?: { state: string; turns: number; calls: number; findings: number; selected: string[]; words: number }
 }
 
 const model = process.env.FORGE_EVAL_MODEL ?? "kilo/openai/gpt-4.1-mini"
 const split = model.indexOf("/")
 const reference = { providerID: model.slice(0, split), modelID: model.slice(split + 1) }
-const forge = ["forge_search_code", "forge_search_docs", "forge_get_symbol", "forge_relationships"]
-const allowed = ["read", "edit", "write", "apply_patch", "glob", "grep", "list", "todowrite", ...forge]
+const allowed = ["read", "edit", "write", "apply_patch", "glob", "grep", "list", "todowrite", ...forge, "forge_investigate", "forge_share", "forge_read_file", "forge_lookup"]
 
 export const settings: Config = {
   model,
@@ -117,7 +123,7 @@ function observed(item: AssistantMessage) {
 }
 
 export async function evaluate(
-  input: { base?: string; password?: string; trials?: number; limit?: number; manifest?: string } = {},
+  input: { base?: string; password?: string; trials?: number; limit?: number; manifest?: string; investigative?: boolean; tools?: boolean; output?: string; subscription?: boolean } = {},
 ) {
   const base = input.base ?? process.env.FORGE_EVAL_URL
   const password = input.password ?? process.env.FORGE_EVAL_PASSWORD
@@ -146,10 +152,20 @@ export async function evaluate(
   ) {
     throw new Error(`Use 1-3 trials and 1-${loaded.tasks.length} tasks`)
   }
-  const tasks = loaded.tasks.slice(0, limit)
-  const metadata = dataset(tasks)
+  const investigative = input.investigative ?? process.env.FORGE_EVAL_INVESTIGATIVE === "1"
+  const tools = input.tools ?? process.env.FORGE_EVAL_TOOLS === "1"
+  if (input.subscription && !tools) throw new Error("Subscription evaluation is restricted to tools-only comparisons")
+  const billing = input.subscription ? "chatgpt-subscription" : "free"
+  if (tools && investigative) throw new Error("Tools-only and investigative evaluation cannot be combined")
+  const tasks = loaded.tasks.slice(0, limit).map((task) => investigative
+    ? { ...task, files: { ...task.files, ".kilo/forge.jsonc": '{"investigation":true,"exclude":[".kilo/**"]}' } }
+    : task)
+  const metadata = dataset(loaded.tasks.slice(0, limit))
   const baseline = await preflight(tasks)
-  const output = await realpath(await mkdtemp(path.join(tmpdir(), "forge-evaluation-")))
+  const output = input.output
+    ? await realpath(input.output)
+    : await realpath(await mkdtemp(path.join(tmpdir(), "forge-evaluation-")))
+  if (await Bun.file(path.join(output, "results.json")).exists()) throw new Error("Evaluation output already exists")
   const authorization = `Basic ${Buffer.from(`kilo:${password}`).toString("base64")}`
   const client = createKiloClient({
     baseUrl: base,
@@ -171,18 +187,28 @@ export async function evaluate(
     },
   }
   const config = (await client.config.get({ directory: output }, options)).data
+  const configuration = { ...settings, ...(input.subscription ? { plugin: plugins } : {}) }
   const effective = new Map(Object.entries(config))
   const agent = new Map(Object.entries(config.agent?.build ?? {}))
-  if (
-    Object.entries(settings).some(([key, value]) => key !== "agent" && !isDeepStrictEqual(effective.get(key), value)) ||
-    Object.entries(settings.agent!.build!).some(([key, value]) => !isDeepStrictEqual(agent.get(key), value))
-  ) {
-    throw new Error("Backend config does not match evaluation model, permissions and limits")
+  const differences = [
+    ...Object.entries(configuration).filter(([key, value]) => key !== "agent" && !isDeepStrictEqual(effective.get(key), value)).map(([key]) => key),
+    ...Object.entries(settings.agent!.build!).filter(([key, value]) => !isDeepStrictEqual(agent.get(key), value)).map(([key]) => `agent.build.${key}`),
+  ]
+  if (differences.length) {
+    throw new Error(`Backend config does not match evaluation model, permissions and limits: ${differences.join(", ")}`)
   }
   if (Object.values(config.mcp ?? {}).some((value) => value.enabled !== false))
     throw new Error("Disable MCP servers for the controlled local baseline")
   const providers = (await client.provider.list({ directory: output }, options)).data
-  const pricing = providers.all.find((item) => item.id === reference.providerID)?.models[reference.modelID]?.cost
+  const selected = providers.all.find((item) => item.id === reference.providerID)?.models[reference.modelID]
+  await writeFile(path.join(output, "model.json"), JSON.stringify({
+    provider: reference.providerID, id: selected?.id, api: selected?.api, cost: selected?.cost, isFree: selected?.isFree,
+  }, null, 2))
+  if (tools) {
+    if (input.subscription) subscription(selected, reference.providerID)
+    if (!input.subscription) free(selected)
+  }
+  const pricing = selected?.cost
   if (!pricing) throw new Error("Pinned model is not available")
   const rows: Row[] = []
   const started = new Date().toISOString()
@@ -199,30 +225,32 @@ export async function evaluate(
     harness: hash(
       (
         await Promise.all(
-          ["evaluate.ts", "harness.ts", "grading.ts", "tasks.ts", "repositories.ts"].map((file) =>
+          ["evaluate.ts", "harness.ts", "grading.ts", "tasks.ts", "repositories.ts", "ablation.ts", "free.ts", "chatgpt.ts"].map((file) =>
             Bun.file(path.join(import.meta.dir, file)).text(),
           ),
         )
       ).join("\n"),
     ),
-    preparation: {
+    preparation: tools ? null : {
       generic: { model: config.small_model, temperature: 0.7, retries: 3, outputLimit: "provider default" },
-      forge: { model: config.small_model, temperature: 0.1, retries: 1, outputLimit: 5000 },
+      forge: { model: config.small_model, temperature: 0.1, retries: 0, outputLimit: 12000 },
+      ...(investigative ? { investigative: { model, turns: 12, calls: 24, retries: 0, outputLimit: 4000, selection: "Select the first non-contradicted finding. Required questions and empty findings are blocked outcomes; no second attempt." } } : {}),
     },
   }
   console.log(`Results: ${output}`)
   const save = async () => {
     const report = {
-      version: 2,
+      version: tools ? 4 : investigative ? 3 : 2,
       started,
       model,
       trials,
       tasks: limit,
       fixture: metadata.hash,
       dataset: metadata,
-      configuration: settings,
+      configuration,
       pricing,
-      arms,
+      arms: tools ? paired : investigative ? variants : arms,
+      ...(tools ? { comparison: "tools-only", billing, treatment: [...forge], free: { verified: !input.subscription, model: selected?.id, pricing } } : {}),
       provenance,
       baseline,
       rows,
@@ -236,15 +264,26 @@ export async function evaluate(
             ]
           : []),
         "Normal means the same local Kilo build with Forge preparation and Forge tools disabled for that session.",
+        ...(tools ? [
+          "Both arms receive identical raw prompts, standard coding tools, model and limits. Only the four Forge coding tools differ. No enhancement, investigation, external documentation or embeddings are used.",
+          input.subscription
+            ? "Direct ChatGPT OAuth uses subscription allowance, not a globally free model. Zero backend input/output/cache rates are required before each attempt. The isolated launcher imports only the OpenAI OAuth credential, never an API key; quota errors stop the run."
+            : "Free model status and zero input/output/cache prices are required before each attempt. Advertised rates and reported usage are not a provider invoice.",
+          "Tool availability is the treatment; the model chooses whether to use Forge. Zero Forge calls means no observed tool use, not evidence of the tools' efficacy when used.",
+        ] : [
         "Generic uses the unchanged existing enhancer via /forge/baseline and standard coding tools; the original request remains authoritative.",
-        "Forge includes repository preparation, selected evidence, and optional Forge tools; no external docs or embeddings.",
+        investigative ? "All four arms use the same standard coding tools. Forge tools are disabled during coding to isolate preparation quality. A common excluded .kilo/forge.jsonc enables the workshop in every disposable fixture."
+          : "Forge includes repository preparation, selected evidence, and optional Forge tools; no external docs or embeddings.",
+        ]),
         "Per-run end-to-end latency includes setup, preparation and coding, but excludes independent grading and server startup.",
         "Unknown totals are null; reported fields retain measurable lower bounds, not zero-cost claims. Costs are estimates, not invoices.",
         "Zero-only usage is conservatively unknown because the backend may normalize missing provider usage to zero.",
         "Transport observations reconcile retained HTTP attempts, including retries. Legacy, discarded, failed or unconsumed reports block complete token claims; bounded request history is not a durable all-resource ledger.",
         "Preparation cost uses advertised input/output/cache-read rates; its usage schema omits cache-write and reasoning breakdowns.",
-        "Existing enhancers retain their own temperature, retry and output defaults; coding model, limits and graders are identical.",
-        "The generic HTTP deadline bounds the client, but the existing backend does not guarantee cancellation of its provider call.",
+        ...(!tools ? [
+          "Existing enhancers retain their own temperature, retry and output defaults; coding model, limits and graders are identical.",
+          "The generic HTTP deadline bounds the client, but the existing backend does not guarantee cancellation of its provider call.",
+        ] : []),
         "Local revision and dirty state describe the harness checkout, not verified backend identity; backendRevision is operator-supplied.",
         "Separate temporary directories and fresh sessions isolate files and conversation; provider caches may still be shared.",
         "Tool permissions deny external paths, network tools and arbitrary shell commands; this is not full OS-level isolation.",
@@ -258,7 +297,13 @@ export async function evaluate(
   for (let trial = 1; trial <= trials; trial++) {
     for (const [index, task] of tasks.entries()) {
       // Counterbalance order across tasks and repetitions to reduce cache/order bias.
-      for (const arm of order(index, trial)) {
+      for (const arm of tools ? alternate(index, trial) : order(index, trial, investigative)) {
+        if (tools) {
+          const current = (await client.provider.list({ directory: output }, options)).data
+          const selected = current.all.find((item) => item.id === reference.providerID)?.models[reference.modelID]
+          if (input.subscription) subscription(selected, reference.providerID)
+          if (!input.subscription) free(selected)
+        }
         const root = await realpath(await mkdtemp(path.join(tmpdir(), "forge-work-")))
         await materialize(root, task.files)
         const initial = hash(JSON.stringify(await files(root)))
@@ -302,6 +347,8 @@ export async function evaluate(
         let coded = 0
         let invoked = false
         let reply: AssistantMessage | undefined
+        let binding: PreparationBinding | undefined
+        const purposes = tools ? [] : arm === "investigative" ? ["investigate", "investigation-write"] : [arm === "generic" ? "generic-enhance" : "enhance"]
         try {
           const created = await client.session.create(
             { directory: root, title: `Evaluation ${name}`, agent: "build" },
@@ -313,13 +360,13 @@ export async function evaluate(
             (await client.forge.requestObservation({ directory: root }, options)).data,
           )
           let prompt = task.prompt
-          if (arm !== "normal") {
+          if (!tools && arm !== "normal") {
             row.phase = "preparation"
             since = Date.now()
             await save()
             prompt = await timed(
               async () => {
-                const signal = AbortSignal.timeout(120000)
+                const signal = AbortSignal.timeout(arm === "investigative" ? 260000 : 120000)
                 if (arm === "generic") {
                   const proposal = await enhance(base, authorization, root, task.prompt, signal)
                   row.prepared = proposal.usage
@@ -327,6 +374,37 @@ export async function evaluate(
                   if (hash(JSON.stringify(await files(root))) !== initial)
                     throw new Error("Preparation changed project files")
                   return compose(task.prompt, proposal.text)
+                }
+                if (arm === "investigative") {
+                  const record = decode(Investigation, (await client.forge.investigate(
+                    { directory: root, key: randomUUID(), text: task.prompt, session: row.session, model: reference }, { ...options, signal },
+                  )).data)
+                  await writeFile(path.join(archive, "investigation.json"), JSON.stringify(record, null, 2))
+                  row.prepared = record.usage
+                  row.investigation = { state: record.state, turns: record.turns, calls: record.calls, findings: record.findings.length, selected: [], words: 0 }
+                  const selected = record.findings.find((item) => item.support !== "contradicted")
+                  if (record.state !== "findings_ready" || !selected) {
+                    row.blocked = true
+                    throw new Error("Investigation has no selectable direction or needs clarification")
+                  }
+                  row.investigation.selected = [selected.id]
+                  const direction = (await client.forge.chooseDirection({
+                    directory: root, key: randomUUID(), investigation: record.id, revision: record.revision,
+                    selected: [selected.id], session: row.session,
+                  }, { ...options, signal })).data
+                  const prepared = decode(Prepared, (await client.forge.writePrompt({
+                    directory: root, id: direction.id, revision: direction.revision, key: randomUUID(), session: row.session,
+                  }, { ...options, signal })).data)
+                  if (prepared.state !== "ready") throw new Error("Investigative writer did not return a ready prompt")
+                  row.prepared = { ...prepared.usage, input: record.usage.input + prepared.usage.input, output: record.usage.output + prepared.usage.output, cached: record.usage.cached + prepared.usage.cached, measured: record.usage.measured && prepared.usage.measured }
+                  binding = (await client.forge.bindPrompt({
+                    directory: root, binding: { id: prepared.id, revision: prepared.revision, hash: prepared.hash },
+                    text: prepared.prompt, session: row.session!, model: reference,
+                  }, { ...options, signal })).data
+                  row.investigation.words = prepared.prompt.trim().split(/\s+/).length
+                  await writeFile(path.join(archive, "preparation.json"), JSON.stringify(prepared, null, 2))
+                  if (hash(JSON.stringify(await files(root))) !== initial) throw new Error("Preparation changed project files")
+                  return prepared.prompt
                 }
                 const proposal = (
                   await client.forge.enhance(
@@ -369,8 +447,8 @@ export async function evaluate(
                   sessionID: row.session!,
                   agent: "build",
                   model: reference,
-                  tools: Object.fromEntries(forge.map((key) => [key, arm === "forge"])),
-                  parts: [{ type: "text", text: prompt }],
+                  tools: Object.fromEntries(forge.map((key) => [key, !investigative && arm === "forge"])),
+                  parts: [{ type: "text", text: prompt, ...(binding ? { metadata: handoff(binding) } : {}) }],
                 },
                 { ...options, signal: AbortSignal.timeout(240000) },
               ),
@@ -400,9 +478,13 @@ export async function evaluate(
               return null
             })
         row.observation.before = await inspect()
-        const records: readonly Manifest[] | null = await client.forge
-          .requests({ directory: root }, options)
-          .then((result) => decode(Schema.Array(Manifest), result.data))
+        // The API defaults to the empty session, not all workspace requests.
+        const records: readonly Manifest[] | null = await Promise.all(
+          [...new Set(["", row.session ?? ""])].map(async (session) =>
+            decode(Schema.Array(Manifest), (await client.forge.requests({ directory: root, session, limit: "100" }, options)).data),
+          ),
+        )
+          .then((groups) => [...new Map(groups.flat().map((record) => [record.id, record])).values()])
           .catch((err) => {
             row.warnings.push(`Transport usage unavailable: ${describe(err)}`)
             return null
@@ -426,7 +508,7 @@ export async function evaluate(
             root,
             row.session ?? "",
             since,
-            arm === "generic" ? "generic-enhance" : "enhance",
+            purposes,
           )
           row.transport.preparation = recovered
           if (
@@ -464,18 +546,18 @@ export async function evaluate(
         const coding =
           coded && records ? recover(records, root, row.session ?? "", coded, ["coding", "compaction"]) : null
         row.transport.coding = coding
-        const purposes = [
+        const unexpected = [
           ...new Set(
             records
               ?.filter(
                 (record) =>
                   (record.attempts?.length || record.usage.measured) &&
-                  ![arm === "generic" ? "generic-enhance" : "enhance", "coding", "compaction"].includes(record.purpose),
+                  ![...purposes, "coding", "compaction"].includes(record.purpose),
               )
               .map((record) => record.purpose) ?? [],
           ),
         ]
-        const extra = records && purposes.length ? recover(records, root, row.session ?? "", 0, purposes) : null
+        const extra = records && unexpected.length ? recover(records, root, row.session ?? "", 0, unexpected) : null
         row.transport.extra = extra
         if (extra != null)
           row.warnings.push(
@@ -509,6 +591,16 @@ export async function evaluate(
               : [],
           ),
         )
+        if (tools && arm === "normal" && row.tools.some((item) => item.tool.startsWith("forge_"))) {
+          row.error ||= "Baseline attempted a Forge tool; comparison is contaminated"
+          row.failure = "infrastructure"
+        }
+        if (tools && arm === "forge" && !row.tools.some((item) => item.tool.startsWith("forge_") && item.status === "completed"))
+          row.warnings.push("Forge tools were available but no completed Forge tool use was observed.")
+        if (tools && stats.cost > 0) {
+          row.error ||= "Free-only evaluation observed nonzero model cost; refusing further attempts"
+          row.failure = "infrastructure"
+        }
         const prepared = row.prepared
         const priced = !prepared.measured || prepared.model === model
         const rate =
@@ -533,7 +625,7 @@ export async function evaluate(
         // Assistant costs cover exposed final outcomes, not additional HTTP retries.
         const matched = consumed === recorded
         row.cost =
-          row.tokens != null && priced && matched && (arm === "normal" || row.transport.preparation?.priced === true)
+          row.tokens != null && priced && matched && (tools || arm === "normal" || row.transport.preparation?.priced === true)
             ? row.reported.cost
             : null
         row.models = {

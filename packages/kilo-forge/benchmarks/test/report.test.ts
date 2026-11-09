@@ -111,6 +111,16 @@ test("three-arm reports compare complete triples and retain provenance", () => {
   expect(summarize({ ...triple, rows: report.rows }, true).arms.every((arm) => arm.runs === 0)).toBe(true)
 })
 
+test("four-arm reports require matched groups and equal standard coding tools", () => {
+  const value = { ...triple, version: 3, arms: ["normal", "generic", "forge", "investigative"], rows: [...triple.rows, { ...report.rows.at(0)!, arm: "investigative" }] }
+  const result = summarize(value)
+  expect(result.arms).toHaveLength(4)
+  expect(result.text).toContain("four-arm groups")
+  expect(result.text).toContain("predeclared protocol")
+  expect(() => summarize({ ...value, rows: triple.rows })).toThrow("complete four-arm groups")
+  expect(() => summarize({ ...value, rows: value.rows.map((row) => ({ ...row, tools: row.arm === "investigative" ? [{ tool: "forge_search_code", status: "completed" }] : [] })) })).toThrow("baseline used a Forge tool")
+})
+
 test("unavailable providers exclude the entire triple, including successful partners", () => {
   const result = summarize({
     ...triple,

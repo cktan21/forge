@@ -46,7 +46,7 @@ export async function benchmark(opts: { trials?: number; budgets?: readonly numb
       await storage.replace(snapshot)
       const cold = performance.now() - started
       const refreshed = performance.now()
-      const warm = await scan({ root, cfg, previous: snapshot })
+      const warm = await scan({ root, cfg, previous: snapshot, changed: [] })
       await storage.replace(warm, snapshot)
       const elapsed = performance.now() - refreshed
       if (warm.generation !== snapshot.generation) throw new Error("Unchanged fixture changed generation")

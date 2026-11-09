@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { arms as variants, type Arm } from "./harness"
+import { variants, type Arm } from "./harness"
 
 type Identity = { task: string; trial: number; arm: Arm }
 

@@ -1,6 +1,6 @@
 import { Schema } from "effect"
 import { decode } from "../src/schema"
-import { arms as variants, failure, unavailable } from "./harness"
+import { arms as legacy, variants, failure, unavailable } from "./harness"
 import { assess, key as identity } from "./assessment"
 
 const Row = Schema.Struct({
@@ -37,6 +37,7 @@ const Row = Schema.Struct({
 })
 const Report = Schema.Struct({
   version: Schema.optional(Schema.Number),
+  billing: Schema.optional(Schema.Literals(["free", "chatgpt-subscription"])),
   arms: Schema.optional(Schema.Array(Schema.Literals(variants))),
   provenance: Schema.optional(Schema.Unknown),
   dataset: Schema.optional(Schema.Unknown),
@@ -54,7 +55,7 @@ export function summarize(value: unknown, partial = false, assessments?: unknown
   for (const count of [report.trials, report.tasks]) {
     if (!Number.isSafeInteger(count) || count < 1) throw new Error("Invalid planned task or trial count")
   }
-  if (report.version != null && ![1, 2].includes(report.version)) throw new Error("Unsupported report version")
+  if (report.version != null && ![1, 2, 3, 4].includes(report.version)) throw new Error("Unsupported report version")
   const dataset =
     report.dataset === undefined
       ? null
@@ -95,7 +96,7 @@ export function summarize(value: unknown, partial = false, assessments?: unknown
     )
   )
     throw new Error("Repository subset provenance requires a repository, full revision and unique selected file paths")
-  const expected = report.version === 2 ? variants : (["normal", "forge"] as const)
+  const expected = report.version === 3 ? variants : report.version === 2 ? legacy : (["normal", "forge"] as const)
   if (report.arms && (report.arms.length !== expected.length || expected.some((arm) => !report.arms!.includes(arm))))
     throw new Error("Report arm declarations do not match its version")
   const observed = report.rows.map((row) => {
@@ -148,9 +149,11 @@ export function summarize(value: unknown, partial = false, assessments?: unknown
     if (row.success !== success)
       throw new Error("Report success contradicts grading, blockers, errors or failure state")
     if (!expected.some((arm) => row.arm === arm)) throw new Error("Unexpected report arm")
+    if (report.version === 4 && (row.preparation !== 0 || row.prepared.input !== 0 || row.prepared.output !== 0))
+      throw new Error("Tools-only comparison must not include prompt preparation")
     if (
-      row.arm !== "forge" &&
-      row.tools?.some((tool) => tool.tool.startsWith("forge_") && tool.status === "completed")
+      (report.version === 3 || row.arm !== "forge") &&
+      row.tools?.some((tool) => tool.tool.startsWith("forge_") && (report.version === 4 || tool.status === "completed"))
     ) {
       throw new Error(`${row.arm === "normal" ? "Normal" : "Generic"} baseline used a Forge tool`)
     }
@@ -167,7 +170,7 @@ export function summarize(value: unknown, partial = false, assessments?: unknown
   const unmatched = observed.length - complete.length
   if (unmatched && !partial)
     throw new Error(
-      `Only complete ${expected.length === 2 ? "normal/Forge pairs" : "normal/generic/Forge triples"} can be compared`,
+      `Only complete ${expected.length === 2 ? "normal/Forge pairs" : expected.length === 3 ? "normal/generic/Forge triples" : "four-arm groups"} can be compared`,
     )
   const rows = [...groups.values()]
     .filter(
@@ -215,6 +218,11 @@ export function summarize(value: unknown, partial = false, assessments?: unknown
         ? null
         : sum((row) => row.prepared.input + row.prepared.output),
       calls: sum((row) => row.usage.calls),
+      forge: {
+        attempted: sum((row) => row.tools?.filter((tool) => tool.tool.startsWith("forge_")).length ?? 0),
+        completed: sum((row) => row.tools?.filter((tool) => tool.tool.startsWith("forge_") && tool.status === "completed").length ?? 0),
+        runs: selected.filter((row) => row.tools?.some((tool) => tool.tool.startsWith("forge_") && tool.status === "completed")).length,
+      },
       cost,
       documents: selected.filter((row) => row.grading!.changed.some((file) => file.startsWith("docs/"))).length,
       tests: selected.filter((row) => row.grading!.changed.some((file) => file.startsWith("tests/"))).length,
@@ -226,8 +234,24 @@ export function summarize(value: unknown, partial = false, assessments?: unknown
   })
   const metric = (label: string, fn: (arm: (typeof arms)[number]) => string | number | null) =>
     `| ${label} | ${arms.map((arm) => fn(arm) ?? "unknown").join(" | ")} |`
-  const units = expected.length === 2 ? "pairs" : "triples"
+  const units = expected.length === 2 ? "pairs" : expected.length === 3 ? "triples" : "four-arm groups"
   const missing = observed.filter((row) => row.tokens == null || row.cost == null).length
+  const pairs = report.version !== 4 ? [] : [...groups.values()]
+    .filter((group) => group.length === 2 && group.every((row) => rows.includes(row)))
+    .map((group) => ({ normal: group.find((row) => row.arm === "normal")!, forge: group.find((row) => row.arm === "forge")! }))
+  const solved = pairs.filter((pair) => pair.normal.success && pair.forge.success)
+  const measured = solved.filter((pair) => pair.normal.tokens != null && pair.forge.tokens != null)
+  const comparison = report.version !== 4 ? null : {
+    pairs: pairs.length,
+    wins: pairs.filter((pair) => pair.forge.success && !pair.normal.success).length,
+    losses: pairs.filter((pair) => pair.normal.success && !pair.forge.success).length,
+    both: solved.length,
+    neither: pairs.filter((pair) => !pair.normal.success && !pair.forge.success).length,
+    points: pairs.length ? 100 * pairs.reduce((sum, pair) => sum + Number(pair.forge.success) - Number(pair.normal.success), 0) / pairs.length : null,
+    seconds: solved.length ? solved.reduce((sum, pair) => sum + (pair.forge.elapsed - pair.normal.elapsed) / 1000, 0) / solved.length : null,
+    measured: measured.length,
+    tokens: measured.length ? measured.reduce((sum, pair) => sum + pair.forge.tokens! - pair.normal.tokens!, 0) / measured.length : null,
+  }
   const text = [
     `# ${expected.length === 2 ? "Forge vs Normal Kilo" : "Normal Kilo vs Generic Enhancer vs Forge"}: Live Coding Evaluation`,
     "",
@@ -245,7 +269,7 @@ export function summarize(value: unknown, partial = false, assessments?: unknown
     "",
     "## Results",
     "",
-    `| Metric | ${expected.map((arm) => (arm === "normal" ? "Normal Kilo" : arm === "generic" ? "Generic Enhancer" : "Forge")).join(" | ")} |`,
+    `| Metric | ${expected.map((arm) => (arm === "normal" ? "Normal Kilo" : arm === "generic" ? "Generic Enhancer" : arm === "investigative" ? "Investigative Forge" : "Forge")).join(" | ")} |`,
     `|---|${expected.map(() => "---|").join("")}`,
     metric("Functional successes", (arm) => (arm.runs ? `${arm.successes}/${arm.runs}` : "not available")),
     metric("Independent checks passed", (arm) => (arm.checks ? `${arm.passed}/${arm.checks}` : "not available")),
@@ -285,6 +309,17 @@ export function summarize(value: unknown, partial = false, assessments?: unknown
       const item = arm.assessment.intent
       return item.preserved == null ? null : `${item.preserved}/${item.matched}`
     }),
+    ...(comparison ? [
+      "",
+      "## Paired Effect",
+      "",
+      `Available pairs: ${comparison.pairs}. Forge-only successes: ${comparison.wins}; normal-only successes: ${comparison.losses}; both succeeded: ${comparison.both}; neither succeeded: ${comparison.neither}.`,
+      `Functional success difference (Forge minus normal): ${comparison.points == null ? "unknown" : `${comparison.points.toFixed(1)} percentage points`}.`,
+      `Mean paired time difference on the ${comparison.both} pairs where both succeeded: ${comparison.seconds == null ? "unknown" : `${comparison.seconds.toFixed(1)} seconds`} (negative favors Forge).`,
+      `Mean paired token difference on ${comparison.measured} fully measured, jointly successful pairs: ${comparison.tokens == null ? "unknown" : comparison.tokens.toFixed(0)} (negative favors Forge).`,
+      "These are descriptive differences. Repeated attempts on the same task are not independent tasks. Failed or incomplete solutions are never treated as efficiency wins.",
+      "",
+    ] : []),
     "",
     "Retrieval and intent labels are optional external human annotations from archived evidence, not automatically observed paths or model self-scores. Each metric uses only available comparison groups with that metric reviewed for every arm; reviewed counts also expose excluded incomplete annotation groups. Missing assessments are unknown, never zero or pass. Ratios pool path/constraint counts over matched reviewed runs, not independent trials.",
     "Empty observed retrieval has unknown precision and zero recall against nonempty relevant labels. A zero reviewed denominator is unknown. Expected relevant labels and explicit intent rubrics must agree across all assessed repetitions and arms for each task.",
@@ -294,6 +329,17 @@ export function summarize(value: unknown, partial = false, assessments?: unknown
       ? "All comparable attempts solved their tasks. These exploratory measurements do not establish general superiority."
       : "There is no like-for-like completed-solution efficiency comparison because some attempts did not complete the task.",
     "A document/test edit is not evidence of adequate content or coverage.",
+    ...(report.version === 4 ? [
+      "",
+      "## Forge Tool Adoption",
+      "",
+      "| Arm | Runs using Forge | Attempted Forge calls | Completed Forge calls |",
+      "|---|---|---|---|",
+      ...arms.map((arm) => `| ${arm.arm} | ${arm.forge.runs}/${arm.runs} | ${arm.forge.attempted} | ${arm.forge.completed} |`),
+      "",
+      "This measures the effect of making Forge tools available, not forcing their use. No completed Forge calls means this run did not exercise the treatment. Do not infer tool efficacy from non-use.",
+      "",
+    ] : []),
     "Lower time or token use on blocked/failed attempts is not an efficiency win: those runs may never have reached coding. Existing regressions can pass without implementing the requested feature.",
     "Checks that pass on unchanged code reflect pre-existing behavior, not partial implementation of the new feature.",
     "",
@@ -329,12 +375,24 @@ export function summarize(value: unknown, partial = false, assessments?: unknown
     "",
     `Recorded ${observed.length} attempts over ${new Set(observed.map((row) => row.task)).size} tasks; ${rows.length} attempts form comparable ${units}. Requested ${report.trials} trial(s) per arm and task. Fixture digest: \`${report.fixture}\`.`,
     "",
-    expected.length === 3
+    report.version === 4
+      ? "Tools-only ablation: both arms receive the exact same raw task, with no prompt enhancement or investigation. Normal disables the four Forge coding tools; Forge enables them. The model chooses which tools to use."
+      : expected.length === 4
+      ? "Four preparation arms share identical standard coding tools. Investigative Forge records findings, selects the first non-contradicted direction under a predeclared protocol, writes and validates its prompt, and submits structured provenance. Empty findings and required clarifications remain blocked outcomes."
+      : expected.length === 3
       ? "Normal uses the raw task and standard Kilo coding tools. Generic uses the unchanged existing enhancer and standard tools. Forge uses its real enhancement endpoint, validates the evidence, then submits the prepared prompt plus cited context with Forge tools available. Enhanced arms preserve the authoritative original request."
       : "Normal uses the raw task and standard Kilo tools. Forge uses preparation, freshness validation and cited context with Forge tools available. This legacy report contains no generic-enhancer arm.",
-    "All arms use identical initial file hashes, fresh directories/sessions, the same requested coding model, 16 model steps, a 240-second coding timeout, and identical coding permissions apart from Forge tools. Preparation has a separate 120-second deadline and counts in total latency/tokens.",
-    expected.length === 3
+    report.version === 4
+      ? `Both arms use identical initial file hashes, fresh directories/sessions, the same named model, 16 coding steps and a 240-second coding deadline. ${report.billing === "chatgpt-subscription" ? "The isolated ChatGPT launcher uses the existing OAuth subscription allowance, not a free-model promotion or pay-as-you-go API key. Zero backend rates are checked before each attempt; this does not measure remaining subscription quota." : "Free status and zero advertised prices are checked before each attempt."}`
+      : report.version === 3
+      ? "All arms use identical initial files, fresh sessions, the same requested coding model, 16 coding steps and a 240-second coding deadline. Investigative preparation uses at most 12 turns plus one writer call. All preparation and coding attempts count toward resource totals."
+      : "All arms use identical initial file hashes, fresh directories/sessions, the same requested coding model, 16 model steps, a 240-second coding timeout, and identical coding permissions apart from Forge tools. Preparation has a separate 120-second deadline and counts in total latency/tokens.",
+    expected.length === 4
+      ? "A four-arm Williams square balances position and immediate predecessor over complete blocks. Small or interrupted batches may not be balanced."
+      : expected.length === 3
       ? "Order rotates across tasks and trials using all six permutations, balancing each task's positions over three trials. Small or interrupted batches may not be fully balanced."
+      : report.version === 4
+      ? "Two-arm order alternates by task and reverses each trial. Complete even-sized blocks balance first position; incomplete runs may not be balanced."
       : "The legacy harness alternated two-arm order.",
     "Normal Kilo here means raw prompting under the same restricted evaluation policy, not an unrestricted production session. Recovered tool errors still count toward its elapsed time and tokens.",
     "Hidden checks and reference solutions are never copied into coding workspaces. Grading happens afterward in a separate copy; original public regression tests are restored. The graders were checked against unfixed inputs and reference fixes before model trials.",
@@ -346,7 +404,7 @@ export function summarize(value: unknown, partial = false, assessments?: unknown
     ...report.limitations.map((item) => `- ${item}`),
     "- No statistical significance is claimed from this small sample. Latency reflects gateway load and may be noisy.",
     "- Recorded assistant turns are not a count of underlying HTTP retries. Fixture copying, independent grading, and backend startup are outside per-attempt timing.",
-    report.version === 2
+    report.version === 2 || report.version === 3 || report.version === 4
       ? "- Failed phases retain elapsed time. Interrupted in-flight rows remain explicitly incomplete; unreported usage is unknown."
       : "- Legacy reports did not reliably measure failed-phase duration or missing usage. Zero phase times on failed calls are not evidence of free preparation.",
     "- The test does not measure architecture understanding, opportunity discovery, graph usability, or performance on large production repositories.",
@@ -372,7 +430,7 @@ export function summarize(value: unknown, partial = false, assessments?: unknown
     "Repeat with an authenticated, explicitly pinned model and unseen real-repository tasks before claiming a general advantage. Deterministic regressions do not establish live coding superiority.",
     "",
   ].join("\n")
-  return { arms, text, unmatched, assessments: assessment.document, dataset: report.dataset ?? null }
+  return { arms, text, unmatched, comparison, assessments: assessment.document, dataset: report.dataset ?? null }
 }
 
 export function argumentsFor(args: readonly string[]) {

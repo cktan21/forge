@@ -3,11 +3,22 @@ import { decode, Usage, usage, type Manifest, type RequestObservation } from "..
 import { reconcile } from "../src/model-accounting"
 
 export const arms = ["normal", "generic", "forge"] as const
-export type Arm = (typeof arms)[number]
+export const variants = [...arms, "investigative"] as const
+export type Arm = (typeof variants)[number]
 export type Failure = "auth" | "quota" | "infrastructure" | "workflow" | "interrupted"
 
 // All six permutations balance position and predecessor over each complete block.
-export function order(index: number, trial = 1): readonly Arm[] {
+export function order(index: number, trial = 1, investigative = false): readonly Arm[] {
+  if (investigative) {
+    // A four-arm Williams square balances position and immediate predecessor.
+    const rows = [
+      ["normal", "generic", "investigative", "forge"],
+      ["generic", "forge", "normal", "investigative"],
+      ["forge", "investigative", "generic", "normal"],
+      ["investigative", "normal", "forge", "generic"],
+    ] as const
+    return rows.at((index + trial - 1) % rows.length)!
+  }
   const permutations = [
     ["normal", "generic", "forge"],
     ["generic", "forge", "normal"],
