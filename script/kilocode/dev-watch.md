@@ -6,6 +6,10 @@ Run from the repository root:
 bun run dev:watch /path/to/project
 ```
 
+With no project argument, `bun run dev:watch` opens the repository root, not `packages/opencode`. Relative project paths are resolved from that root. This also ensures Forge reads the root `.kilo/forge.jsonc` when developing Forge itself.
+
+Bun still starts inside `packages/opencode` to load its SolidJS compiler configuration. `KILO_DEV_CWD` selects the TUI workspace independently; moving Bun's startup directory to the root can incorrectly compile the TUI as React.
+
 From another directory:
 
 ```sh

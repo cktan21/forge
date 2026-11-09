@@ -1,5 +1,6 @@
 import { existsSync, watch as observe, type FSWatcher } from "node:fs"
 import path from "node:path"
+import { command } from "./forge-command"
 
 const configs = new Set(["package.json", "bunfig.toml", "tsconfig.json", "bun.lock"])
 const ignored = new Set(["node_modules", "dist", ".git", ".cache"])
@@ -134,13 +135,11 @@ export async function watch(opts: { root: string; cmd: string[]; cwd: string; en
 
 if (import.meta.main) {
   const root = path.resolve(import.meta.dirname, "../..")
-  const args = process.argv.slice(2)
-  if (args.at(0) === "--") args.shift()
+  const launch = command(root, process.argv.slice(2))
   process.exitCode = await watch({
     root,
-    cwd: path.join(root, "packages/opencode"),
-    cmd: [process.execPath, "run", "--conditions=node", "src/index.ts", ...args],
-    env: { ...process.env, KILO_CLIENT: "cli", KILO_NO_DAEMON: "1", KILO_DISABLE_AUTOUPDATE: "true" },
+    ...launch,
+    env: { ...launch.env, KILO_CLIENT: "cli", KILO_NO_DAEMON: "1", KILO_DISABLE_AUTOUPDATE: "true" },
     prepare: async () => {
       console.error("[dev:watch] Building Forge browser assets...")
       const child = Bun.spawn([process.execPath, "run", "build"], { cwd: path.join(root, "packages/kilo-forge-ui"), stdin: "ignore", stdout: "inherit", stderr: "inherit" })
