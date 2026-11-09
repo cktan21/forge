@@ -36,6 +36,29 @@ The consolidated suites use nested behavior groups and tables to preserve distin
 
 Some retained checks are opt-in: `FORGE_RESEARCH_PDF` supplies a local research PDF. Source and packaged held-status checks share `packages/tui/test/kilocode/forge-status-server.test.tsx`; enable them with `FORGE_HELD_SOURCE=1` and `FORGE_HELD_SERVER=1`, respectively. `FORGE_HELD_BINARY` can override the packaged CLI path, and `FORGE_CHROME` selects the browser executable. The embedding integration requires `FORGE_EMBEDDING_SOURCE=1` or `FORGE_EMBEDDING_BINARY`. Without inputs, the core PDF case and three TUI integration cases are skipped. These flags do not represent release certification.
 
+## Investigative Workshop
+
+The new path is opt-in with `investigation: true` in `.kilo/forge.jsonc`. Routine tests use actual files, SQLite, parsers, terminal components, and local protocol fixtures. They make no live model calls.
+
+```sh
+# packages/kilo-forge
+bun test ./test/repository.test.ts ./test/investigation.test.ts ./test/writing.test.ts
+bun test ./test/catalog.test.ts ./test/engine.test.ts
+
+# packages/opencode
+bun test ./test/kilocode/forge-investigation.test.ts ./test/kilocode/forge-sources.test.ts
+bun test ./test/kilocode/forge-investigation-process.test.ts
+
+# packages/tui
+bun test ./test/kilocode/forge-composer.test.tsx ./test/kilocode/forge-dialog.test.tsx
+```
+
+The process fixture starts a current-source backend with isolated on-disk state and a local OpenAI-compatible response server. It checks native tool calling, explicit direction/writing, structured message admission, ordinary coding continuation after code changes, compaction, restart, and later exclusion enforcement. `FORGE_WORKSHOP_BINARY=/absolute/path/to/kilo` runs the same fixture against a built CLI. This is a mechanics and provenance test, not evidence that a real model diagnoses a task correctly.
+
+`repository` covers bounded literal discovery and reads, escapes, ignore rules, symlinks, byte limits, and source-instruction text. `investigation` covers adaptive queries, findings support, empty results, clarification, deadlines, cancellation, duplicate attempts, and recovery. `writing` covers chosen-only scope, requirement/counterevidence coverage, edits, freshness, historical coding context, and purge. `catalog` covers cold/delta equivalence and package-local dependency resolution.
+
+Keep source freshness and historical authorization distinct: a new prepared submission requires current supporting evidence; already-submitted coding context must tolerate intended repository edits while retaining revocable source/permission restrictions.
+
 ## Browser Suite Setup
 
 Playwright does not start the Forge backend. Build assets with `bun run --cwd packages/kilo-forge-ui build`, then start the current worktree's source backend, not the installed `kilo` binary. See [backend testing](../../TESTING.md) for readiness and process cleanup.
@@ -80,9 +103,12 @@ On other platforms, use an installed Chromium executable or omit `FORGE_CHROME` 
 bun run --cwd packages/kilo-forge benchmark
 bun run --cwd packages/kilo-forge benchmarks/knowledge.ts
 bun run --cwd packages/kilo-forge benchmarks/documents.ts
+bun run --cwd packages/kilo-forge benchmarks/indexing.ts 5000
 ```
 
 These create and remove temporary fixtures, print results to stdout, and make no model calls. The default benchmark measures lexical retrieval, candidate coverage, serialized evidence size, and selector timing. Synthetic repetition does not establish coding quality or independent statistical evidence.
+
+`indexing.ts` measures visited paths, actual file reads/parses, scan/publication time, sampled process RSS, and generation equivalence for cold, unchanged, one-file delta, and reconciliation phases. Run timing measurements without concurrent builds/tests. These measurements do not establish a general latency guarantee or peak memory bound.
 
 See [benchmark tooling](benchmarks/README.md) for the separately authorized live evaluator. Historical frozen-report comparison, challenge, local-repository pilot, and statistical study runners have been retired.
 
