@@ -301,6 +301,7 @@ try {
   const startup = performance.now() - began
   paste("/map knowledge")
   await wait("Forge · map · agent knowledge")
+  proc.write("\x02")
   const timer = setTimeout(() => opened.reject(new Error("Browser URL unavailable")), 5000)
   const url = new URL(await opened.promise.finally(() => clearTimeout(timer)))
   origin = url.origin
@@ -490,6 +491,7 @@ try {
   await expect(page.getByRole("heading", { name: "What Forge knows. What it used." })).toBeVisible()
   await expect(page.getByText("LIVE WORKSPACE UPDATES", { exact: true })).toBeVisible()
   // Status replaces the cold-wait lines with differential cursor updates.
+  proc.write("o")
   await repaint("Semantic index: disabled")
   await expect(page.getByText("Semantic index: disabled;", { exact: false })).toBeVisible()
   assert.deepEqual((await read<Status>("/forge/status")).semantic, { state: "disabled", searchable: false })
@@ -571,12 +573,14 @@ try {
     await wait("Forge · attachment scope")
     text = ""; proc.write("t")
   } else paste(`/enhance ${original}`)
-  await wait("[a] Accept and run")
+  await wait("[a] Use prompt (does not send)")
   let preparation = (await read<Manifest[]>("/forge/requests?purpose=enhance")).at(0)!
   assert.equal(preparation.state, "completed")
   assert.equal(preparation.selection?.policy, policy.version)
   assert.equal(preparation.retrieval?.state, "completed")
-  assert.equal(preparation.selection?.channels?.length, 7)
+  assert.deepEqual(preparation.selection?.channels?.map((channel) => channel.name).sort(), [
+    "collection-semantic", "dependency-docs", "domains", "keyword", "memory", "public-docs", "relationships", "semantic",
+  ])
   assert.equal(preparation.selection?.channels?.find((channel) => channel.name === "keyword")?.state, "completed")
   assert.deepEqual(preparation.selection?.channels?.find((channel) => channel.name === "semantic"), {
     name: "semantic", state: "disabled", candidates: 0, withheld: 0,
@@ -594,13 +598,12 @@ try {
   if (action === "clarify") {
     const previous = preparation
     text = ""; proc.write("c")
-    await wait("Clarify the task")
+    await wait("Give feedback to improve this revision")
     await Bun.sleep(50)
     proc.write("\x1b[200~Preserve retry behavior.\x1b[201~")
     await wait("Preserve retry behavior.")
     text = ""; proc.write("\r")
-    await wait("Selection changes:")
-    await wait("[a] Accept and run")
+    await wait("[a] Use prompt (does not send)")
     preparation = (await read<Manifest[]>("/forge/requests?purpose=enhance")).at(0)!
     assert.notEqual(preparation.id, previous.id)
     assert.equal(preparation.entries.find((entry) => entry.source === pin)?.stage, "sent")
@@ -615,12 +618,14 @@ try {
   if (action === "accept" || (inspection && !editing)) { text = ""; proc.write("a") }
   if (editing) {
     text = ""; proc.write("e")
-    await wait("Edit the prepared task")
+    await wait("Edit the improved prompt")
     await Bun.sleep(50) // The dialog schedules textarea focus after mount.
     // Append in the actual prompt editor; no synthetic PromptInfo or SDK submission.
     proc.write("\x1b[200~ Review-only workflow edit.\x1b[201~")
     await wait("Review-only workflow edit.")
     text = ""; proc.write("\r")
+    await wait("[a] Use prompt (does not send)")
+    text = ""; proc.write("a")
     await wait("</forge-evidence>")
     await Bun.sleep(50)
     if (lifecycle) {
@@ -631,6 +636,11 @@ try {
       await Bun.sleep(100)
     }
     assert.equal(calls.filter((call) => call.kind === "coding").length, 0)
+    text = ""; proc.write("\r")
+  }
+  if (!editing) {
+    await repaint("</forge-evidence>")
+    assert.equal(calls.filter((call) => call.kind === "coding").length, 0, "Staging must not submit the coding request")
     text = ""; proc.write("\r")
   }
   await repaint("Workflow fixture completed: epoch lease reviewed.")
@@ -686,6 +696,7 @@ try {
   opened = Promise.withResolvers<string>()
   paste("/map knowledge")
   await wait("Forge · map · agent knowledge")
+  proc.write("\x02")
   const timeout = setTimeout(() => opened.reject(new Error("Session browser URL unavailable")), 5000)
   const session = new URL(await opened.promise.finally(() => clearTimeout(timeout)))
   assert.equal(session.searchParams.get("session"), coding.session)
@@ -754,6 +765,7 @@ try {
     await wait("TASK25_COMPACTION")
     paste("/map knowledge")
     await wait("Forge · map · agent knowledge")
+    proc.write("\x02")
     const timer = setTimeout(() => opened.reject(new Error("Resumed browser URL unavailable")), 5000)
     const resumed = new URL(await opened.promise.finally(() => clearTimeout(timer)))
     assert.equal(resumed.searchParams.get("session"), coding.session)
@@ -840,12 +852,12 @@ try {
   await repaint("Retrieval execution: failed; last phase: selection")
   await wait("keyword: completed")
   await page.reload()
-  await expect(page.getByRole("alert").first()).toHaveText("Open /map from the terminal to authenticate this browser session.")
+  await expect(page.getByRole("alert").first()).toHaveText("Open /map in the terminal and press Ctrl+B to authenticate this browser session.")
   await expect(page.locator(".request-info")).toHaveCount(0)
   assert.equal(new URL(page.url()).hash, "")
   assert.deepEqual(await page.evaluate(() => [localStorage.length, sessionStorage.length]), [0, 0])
   opened = Promise.withResolvers<string>()
-  proc.write("m")
+  proc.write("\x02")
   const recovery = setTimeout(() => opened.reject(new Error("Recovery browser URL unavailable")), 5000)
   const renewed = new URL(await opened.promise.finally(() => clearTimeout(recovery)))
   assert.equal(renewed.searchParams.get("directory"), directory)

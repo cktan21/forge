@@ -34,7 +34,7 @@ async function request<A>(path: string, init: { method?: string; body?: unknown;
   // Authentication middleware can return an empty or plain-text response.
   if (response.status === 401) {
     await response.body?.cancel()
-    throw new Error("Open /map from the terminal to authenticate this browser session.")
+    throw new Error("Open /map in the terminal and press Ctrl+B to authenticate this browser session.")
   }
   const value = await response.json()
   if (!response.ok) throw new Error(value.message ?? `Request failed (${response.status})`)

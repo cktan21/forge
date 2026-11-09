@@ -246,7 +246,7 @@ try {
   await page.reload()
   // Authentication is intentionally removed from the URL. Reopen the terminal handoff on reload.
   await expect(
-    page.getByText("Open /map from the terminal to authenticate this browser session.", { exact: false }).first(),
+    page.getByText("Open /map in the terminal and press Ctrl+B to authenticate this browser session.", { exact: false }).first(),
   ).toBeVisible()
   await page.goto(target.href)
   await expect(page.getByText("LIVE WORKSPACE UPDATES", { exact: true })).toBeVisible()

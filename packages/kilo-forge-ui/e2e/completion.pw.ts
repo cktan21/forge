@@ -233,7 +233,7 @@ test("local knowledge remains usable without any model providers", async ({ page
     expect(original.ok(), await original.text()).toBe(true)
     expect((await original.json()).text).toContain("Restore the original journal")
     await page.reload()
-    await expect(page.getByRole("alert").first()).toHaveText("Open /map from the terminal to authenticate this browser session.")
+    await expect(page.getByRole("alert").first()).toHaveText("Open /map in the terminal and press Ctrl+B to authenticate this browser session.")
     await page.goto(`${base}/forge/?${new URLSearchParams({ directory })}#${new URLSearchParams({ authorization })}`)
     await expect(card.locator(".pill")).toHaveText("ready")
     await card.getByRole("button", { name: "Pause", exact: true }).click()

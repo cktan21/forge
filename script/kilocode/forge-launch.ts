@@ -192,6 +192,7 @@ try {
       return response
     }
     async function browser() {
+      proc.write("\x02")
       const timer = setTimeout(
         () => opened.reject(new Error(`Map did not request browser open: ${terminal.text()}`)),
         5000,

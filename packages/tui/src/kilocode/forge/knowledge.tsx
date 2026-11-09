@@ -20,6 +20,7 @@ import { summary as decisions, channels } from "@kilocode/forge/selection"
 import { semantic, coverage } from "@kilocode/forge/semantic"
 import { progress } from "@kilocode/forge/retrieval"
 import { navigation } from "./back"
+import open from "open"
 
 type Status = NonNullable<Awaited<ReturnType<KiloClient["forge"]["status"]>>["data"]>
 type Snapshot = NonNullable<Awaited<ReturnType<KiloClient["forge"]["view"]>>["data"]>
@@ -69,6 +70,20 @@ export function ForgeKnowledge(props: { command: "overview" | "map"; back?: () =
   let captured = ""
   let scroll: ScrollBoxRenderable | undefined
   const refresh = updates({ signal: controller.signal, load: () => cancelled() ? Promise.resolve() : load(false), error: report })
+
+  async function browser() {
+    const base = sdk.url === "http://kilo.internal" ? await sdk.browser?.() : sdk.url
+    if (!base) throw new Error("This host cannot expose the Forge browser interface")
+    const url = new URL("/forge/", base)
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password
+      || url.protocol === "http:" && !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)) throw new Error("Use HTTPS for a remote Forge browser interface")
+    if (controller.signal.aborted || scope.directory !== (project.instance.directory() || sdk.directory)
+      || scope.workspace !== project.workspace.current() || scope.session !== (route.data.type === "session" ? route.data.sessionID : "")) return
+    for (const [key, value] of Object.entries(scope)) if (value) url.searchParams.set(key, value)
+    const authorization = new Headers(sdk.headers).get("authorization")
+    if (authorization) url.hash = new URLSearchParams({ authorization }).toString()
+    await open(url.href)
+  }
 
   createEffect(() => {
     if (!waiting()) return
@@ -245,6 +260,7 @@ export function ForgeKnowledge(props: { command: "overview" | "map"; back?: () =
     enabled: !managing(),
     priority: 1,
     bindings: [
+      { key: "ctrl+b", desc: "Open browser inspection", group: "Forge", cmd: () => { void browser().catch(report) } },
       { key: "down", desc: "Scroll knowledge down", group: "Forge", cmd: () => scroll?.scrollBy(1) },
       { key: "up", desc: "Scroll knowledge up", group: "Forge", cmd: () => scroll?.scrollBy(-1) },
       { key: "pagedown", desc: "Page knowledge down", group: "Forge", cmd: () => scroll?.scrollBy(16) },
@@ -284,7 +300,7 @@ export function ForgeKnowledge(props: { command: "overview" | "map"; back?: () =
   }))
 
   return <box><Show when={!managing()} fallback={<ForgeLibrary scope={scope} root={status()?.inventory.root} references={status()?.references} initial={adding()} back={() => { setManaging(false); refresh() }} draft={draft} valid={() => !controller.signal.aborted && JSON.stringify(unwrap(prompt?.current)) === JSON.stringify(draft)} />}><box padding={1} gap={mapped() ? 0 : 1}>
-    <text fg={theme.primary}>Forge · {mapped() ? "map" : "overview"} · agent knowledge</text>
+    <text fg={theme.primary} onMouseUp={() => { void browser().catch(report) }}>Forge · {mapped() ? "map" : "overview"} · agent knowledge · [Ctrl+B] Browser</text>
     <text fg={theme.textMuted}>{scope.directory}{"\n"}Session: {session || "No active coding session"}</text>
     <Show when={!mapped()} fallback={<box>
       <Show when={waiting()}><text fg={theme.primary}>{status() ? "Refreshing" : "Waiting for"} saved inventory status · {elapsed()}s elapsed · [c] Cancel wait</text></Show>
