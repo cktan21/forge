@@ -12,6 +12,9 @@ export function structured(input: Record<string, unknown>): Record<string, unkno
       if (!record(part)) throw new Error("Unsupported enhancement schema intersection")
       for (const [key, value] of Object.entries(part)) {
         const valid = key === "pattern" ? typeof value === "string"
+          : ["minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum"].includes(key)
+            ? typeof value === "number" && Number.isFinite(value)
+          : key === "multipleOf" ? typeof value === "number" && Number.isFinite(value) && value > 0
           : ["minLength", "maxLength", "minItems", "maxItems"].includes(key)
             && typeof value === "number" && Number.isSafeInteger(value) && value >= 0
         if (!valid || Object.hasOwn(result, key) && result[key] !== value) {
@@ -22,6 +25,9 @@ export function structured(input: Record<string, unknown>): Record<string, unkno
     }
     delete result.allOf
   }
+  // Some constrained decoders match the entire string, unlike JSON Schema's
+  // substring semantics. Preserve nonblank text without forcing one character.
+  if (result.pattern === "\\S") result.pattern = "^[\\s\\S]*\\S[\\s\\S]*$"
   for (const key of ["properties", "$defs", "definitions"]) {
     const value = result[key]
     if (record(value)) {

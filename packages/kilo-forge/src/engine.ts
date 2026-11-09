@@ -30,10 +30,13 @@ import { scope as semanticScope } from "./semantic-scope"
 import type { SearchScope } from "@kilocode/kilo-indexing/search-scope"
 import type { CollectionQuery } from "./collection-semantic"
 import { embeddings, type EmbeddingHost } from "./embeddings"
+import { investigation, type Ports as InvestigationPorts } from "./investigation"
+import { capabilities } from "./investigation-tools"
+import { writing as drafting, PreparationBinding, type Prepared, type Ports as WritingPorts } from "./writing"
 import type { Destination, Entry, SelectionInfo, Semantic, RetrievalChannel, EnhancementProgress, Activity, EnhancementInput, EnhancementModel, EnhancementFailure } from "./schema"
 
 type Lookup = { query: string; tool: string; session: string; call?: string; message?: string; preparation?: string; provider?: string; signal?: AbortSignal }
-type Retrieval = { docs?: boolean; signal?: AbortSignal; pin?: readonly string[]; exclude?: readonly string[]; session?: string; provider?: string; journal?: Journal; record?: (value: Activity) => void }
+type Retrieval = { docs?: boolean; memory?: boolean; signal?: AbortSignal; pin?: readonly string[]; exclude?: readonly string[]; session?: string; provider?: string; journal?: Journal; record?: (value: Activity) => void }
 type Access = Awaited<ReturnType<Store["access"]>>
 
 export type Completion = { text: string; usage: Usage; finish?: EnhancementFailure["finish"] }
@@ -42,6 +45,9 @@ export type Ports = {
   references?: string
   store: Store
   complete(input: { purpose: string; system: string; prompt: string; signal?: AbortSignal; request: string; session?: string; provider?: string; model?: EnhancementModel; evidence?: readonly string[]; update?: (value: EnhancementProgress) => void }): Promise<Completion>
+  turn?: InvestigationPorts["turn"]
+  write?: WritingPorts["write"]
+  permit?: (input: { tool: string; pattern: string; session: string; signal?: AbortSignal }) => Promise<void>
   provider?: () => Promise<string>
   resolve?: (model?: EnhancementModel) => Promise<EnhancementModel>
   destination?: (provider: string) => Promise<Destination>
@@ -53,7 +59,12 @@ export type Ports = {
   collectionSemantic?: (input: CollectionQuery) => Promise<Match[]>
   embeddings?: EmbeddingHost
   readiness?: () => Semantic
-  docs?: (input: { query: string; dependencies: readonly Source[]; cfg: Settings; signal?: AbortSignal }) => Promise<Source[]>
+  docs?: (input: {
+    query: string; dependencies: readonly Source[]; cfg: Settings; signal?: AbortSignal
+    explicit?: boolean; session?: string; provider?: string; destination?: string
+    check?: () => Promise<void>; authorize?: (tool: string) => Promise<void>
+  }) => Promise<Source[]>
+  document?: (item: Source, signal?: AbortSignal) => Promise<void>
   database?: (cfg: Settings, signal?: AbortSignal) => Promise<Source[]>
   history?: () => Promise<Array<{ commit: string; files: string[] }>>
   revision?: () => Promise<string>
@@ -96,6 +107,9 @@ export function engine(ports: Ports) {
   let watcher: FSWatcher | undefined
   let timer: ReturnType<typeof setTimeout> | undefined
   let dirty = true
+  let reconcile = true
+  let reconciled = 0
+  const paths = new Set<string>()
   let disposed = false
   let writing = Promise.resolve()
   let controller: AbortController | undefined
@@ -114,11 +128,38 @@ export function engine(ports: Ports) {
     if (change.topic !== "invalidate") return
     current = undefined
     dirty = true
+    reconcile = true
   })
 
   function warn(text: string) {
     warnings.add(text)
     ports.warn?.(text)
+  }
+
+  function observe() {
+    if (watcher || disposed) return
+    try {
+      watcher = watch(ports.root, { recursive: true, persistent: false }, (_event, file) => {
+        if (file && /(?:^|\/)(?:node_modules|\.git|dist|\.cache)\//.test(file)) return
+        dirty = true
+        if (file && paths.size < 10_000) paths.add(file)
+        else reconcile = true
+        clearTimeout(timer)
+        timer = setTimeout(() => ports.store.detached(() => { void refresh().catch((err) => warn(`Refresh failed: ${message(err)}`)) }), 1500)
+        timer.unref?.()
+        ports.store.changed(ports.root, "job")
+      })
+      watcher.on("error", (err) => {
+        dirty = true
+        reconcile = true
+        warn(`Watcher unavailable; refresh explicitly: ${message(err)}`)
+        watcher?.close()
+        watcher = undefined
+      })
+    } catch (err) {
+      reconcile = true
+      warn(`Watcher unavailable; using full reconciliation: ${message(err)}`)
+    }
   }
 
   function discover(session: string) {
@@ -145,7 +186,7 @@ export function engine(ports: Ports) {
   async function refresh(force = false, signal?: AbortSignal, record?: (value: Activity) => void) {
     if (disposed) throw new Error("Forge workspace is closed")
     if (loading) { record?.({ action: "Wait for inventory", detail: "An existing repository scan is running" }); return loading }
-    if (current && !dirty && !force) {
+    if (current && !dirty && !force && !reconcile && Date.now() - reconciled < 60_000) {
       record?.({ action: "Use indexed inventory", detail: `${current.files} files in the existing snapshot; no new scan` })
       return current
     }
@@ -154,11 +195,19 @@ export function engine(ports: Ports) {
     job = { id: randomUUID(), state: "running", started: Date.now(), updated: Date.now(), message: "Scanning repository evidence" }
     ports.store.changed(ports.root, "job")
     record?.({ action: "Scan repository", detail: "Read supported files within repository and exclusion limits" })
-    loading = ports.store.fenced(ports.root, () => write(() => rebuild(abort, record))).then((snapshot) => {
+    loading = ports.store.fenced(ports.root, () => write(async () => {
+      for (let attempt = 0; attempt < 8; attempt++) {
+        const snapshot = await rebuild(abort, record, !force)
+        if (!dirty) return snapshot
+        record?.({ action: "Reconcile buffered changes", detail: "Repository events arrived during indexing; apply them before accepting this generation" })
+      }
+      throw new Error("Repository kept changing during indexing; retry when the working tree settles")
+    })).then((snapshot) => {
       job = { ...job, state: "completed", updated: Date.now(), message: `Indexed ${snapshot.files} files${snapshot.partial ? " with partial coverage" : ""}.` }
       return snapshot
     }, (err) => {
       dirty = true
+      reconcile = true
       job = { ...job, state: abort.aborted && abort.reason?.name !== "TimeoutError" ? "cancelled" : "failed", updated: Date.now(), message: redact(message(err)) }
       throw err
     }).finally(() => { loading = undefined; controller = undefined; ports.store.changed(ports.root, "job") })
@@ -166,14 +215,20 @@ export function engine(ports: Ports) {
   }
 
   // Call only while holding the write queue, including publication-time checks.
-  async function rebuild(signal?: AbortSignal, record?: (value: Activity) => void) {
+  async function rebuild(signal?: AbortSignal, record?: (value: Activity) => void, incremental = false) {
     if (disposed) throw new Error("Forge workspace is closed")
+    // Subscribe before any scan work so edits during the first build are retained.
+    observe()
+    const batch = [...paths]
+    const full = reconcile
+    paths.clear()
+    dirty = false
+    reconcile = false
     const cfg = await config(ports.root)
     settings = cfg
     await library.sync(cfg).catch((err) => warn(`Knowledge configuration: ${message(err)}`))
     const previous = current ?? await ports.store.snapshot(ports.root)
     const revision = await ports.revision?.().catch((err) => { warn(`Revision unavailable: ${message(err)}`); return "unknown" })
-    dirty = false
     const root = await realpath(ports.root)
     // Registered documents must not bypass collection sharing through the repository scanner.
     const exclusions = (await ports.store.registrations(ports.root)).flatMap((item) => {
@@ -182,11 +237,21 @@ export function engine(ports: Ports) {
       if (item.kind === "file") return [relative]
       return ["md", "mdx", "rst", "txt", "pdf", "docx", "html", "htm"].map((ext) => `${relative ? `${relative}/` : ""}**/*.${ext}`)
     })
-    const scanned = await scan({ root, cfg: { ...cfg, exclude: [...cfg.exclude, ...exclusions] }, previous: previous ? { ...previous, root } : undefined, revision, signal, read: (file) => record?.({ action: "Read locally", path: file.uri, detail: "Repository file bytes read for indexing; not necessarily sent to the model" }), progress: (files) => {
+    const changed = incremental && current && watcher && !full && Date.now() - reconciled < 60_000 && previous?.revision === (revision ?? "working-tree") ? batch : undefined
+    const measured = { read: 0, parsed: 0 }
+    const scanned = await scan({ root, cfg: { ...cfg, exclude: [...cfg.exclude, ...exclusions] }, previous: previous ? { ...previous, root } : undefined, changed, revision, signal, read: (file) => {
+      measured.read++
+      record?.({ action: "Read locally", path: file.uri, detail: "Repository file bytes read for indexing; not necessarily sent to the model" })
+    }, parsed: (file) => {
+      measured.parsed++
+      record?.({ action: "Parse locally", path: file.uri, detail: "Syntax extraction invoked; this does not imply model context or successful runtime verification" })
+    }, progress: (files) => {
       if (job.state !== "running" || Date.now() - job.updated < 250) return
       job = { ...job, updated: Date.now(), message: `Scanning repository: ${files} files discovered` }
       ports.store.changed(ports.root, "job")
     } })
+    record?.({ action: "Scan complete", detail: `${scanned.files} eligible files seen; ${measured.read} files read; ${measured.parsed} parse attempts. Cached inventory is separate from model context.` })
+    if (changed == null) reconciled = Date.now()
     const history: Source[] = []
     const coupling: Snapshot["relations"][number][] = []
     if (cfg.history && ports.history) {
@@ -265,16 +330,7 @@ export function engine(ports: Ports) {
     signal?.throwIfAborted()
     repository.set(next, originals)
     current = next
-    if (!watcher) {
-      watcher = watch(ports.root, { recursive: true, persistent: false }, (_event, file) => {
-        if (file && /(?:^|\/)(?:node_modules|\.git|dist|\.cache)\//.test(file)) return
-        dirty = true
-        clearTimeout(timer)
-        timer = setTimeout(() => ports.store.detached(() => { void refresh().catch((err) => warn(`Refresh failed: ${message(err)}`)) }), 1500)
-        timer.unref?.()
-      })
-      watcher.on("error", (err) => { dirty = true; warn(`Watcher unavailable; refresh explicitly: ${message(err)}`); watcher?.close(); watcher = undefined })
-    }
+    if (!watcher) reconcile = true
     return next
   }
 
@@ -389,12 +445,12 @@ export function engine(ports: Ports) {
     const observed = readiness()
     if (observed.searchable === false) states.semantic = observed.state === "disabled" ? "disabled" : observed.state === "error" ? "failed" : "unavailable"
     opts.journal?.phase("channels", state.generation)
-    if (!session || !ports.memory) opts.journal?.mark("memory", "disabled")
+    if (!session || !ports.memory || opts.memory === false) opts.journal?.mark("memory", "disabled")
     if (!ports.semantic || observed.searchable === false) opts.journal?.mark("semantic", states.semantic ?? "disabled")
     if (!collectionSearch) opts.journal?.mark("collection-semantic", "disabled")
     if (!opts.docs || !ports.docs) opts.journal?.mark("dependency-docs", "disabled")
     const [recalled, keywords, vectors, embedded, external] = await pending("channels (30-second channel-only deadline)", () => deadline((signal) => Promise.all([
-      session && ports.memory ? run("memory", () => { signal.throwIfAborted(); return ports.memory!(query, session, signal) }).catch((err) => {
+      session && ports.memory && opts.memory !== false ? run("memory", () => { signal.throwIfAborted(); return ports.memory!(query, session, signal) }).catch((err) => {
         signal.throwIfAborted()
         states.memory = "failed"
         warn(`Kilo memory was not included: ${message(err)}`)
@@ -517,7 +573,7 @@ export function engine(ports: Ports) {
       { name: "semantic", state: states.semantic ?? (ports.semantic ? "completed" : "disabled"), matches: semantic, withheld: vectors.length - semantic.length, readiness: observed },
       { name: "collection-semantic", state: states.collection ?? (collectionSearch ? "completed" : "disabled"), matches: collection, withheld: embedded.length - collection.length },
       { name: "domains", state: cfg.routing === "domains" ? "completed" : "disabled", matches: routed },
-      { name: "memory", state: states.memory ?? (session && ports.memory ? "completed" : "disabled"), matches: memory, withheld: recalled.length - memories.length },
+      { name: "memory", state: states.memory ?? (session && ports.memory && opts.memory !== false ? "completed" : "disabled"), matches: memory, withheld: recalled.length - memories.length },
       { name: "relationships", state: "completed", matches: related },
       { name: "public-docs", state: publicChange ? "completed" : "disabled", matches: local },
       { name: "dependency-docs", state: states.docs ?? (opts.docs && ports.docs ? "completed" : "disabled"), matches: documents, withheld: external.length - resolved.length },
@@ -899,7 +955,7 @@ export function engine(ports: Ports) {
       const [inventory, coding, preparation] = await Promise.all([
         ports.store.inventory(ports.root, session),
         ports.store.latest(ports.root, session, "coding"),
-        ports.store.latest(ports.root, session, "enhance"),
+        ports.store.latest(ports.root, session, ["enhance", "investigate", "investigation-write"]),
       ])
       const pending = [...waiting.values()].findLast((item) => item.session === session)?.job
       return { inventory, references: directory, session, job: job.state === "running" ? job : pending ?? job, coding, preparation, semantic: readiness() }
@@ -1215,6 +1271,128 @@ export function engine(ports: Ports) {
       await Promise.allSettled([library.dispose(), loading, writing])
     },
   }
+  const tools = capabilities({
+    root: ports.root, store: ports.store, policy,
+    destination: async (provider) => await ports.destination?.(provider) ?? { fingerprint: "", origins: [] },
+    permit: async (input) => { await ports.permit?.(input) },
+    document: ports.document,
+    docs: async (query, dependency, state, signal) => {
+      const cfg = await config(ports.root)
+      if (!ports.docs || !cfg.documents) return []
+      const results = await ports.docs({
+        query, dependencies: [dependency], cfg, signal, explicit: true,
+        session: state.session, provider: state.model.providerID, destination: state.destination,
+        check: () => tools.check(state, signal),
+        authorize: async (tool) => { await ports.permit?.({ tool, pattern: "*", session: state.session, signal }) },
+      })
+      await tools.check(state, signal)
+      for (const item of results) {
+        const stored = await ports.store.source(ports.root, item.id)
+        if (item.method !== "context7" || item.detail.session !== state.session || item.detail.provider !== state.model.providerID
+          || item.evidence.length !== 1 || item.evidence.at(0) !== dependency.id
+          || stored && (stored.method !== "context7" || fingerprint(stored) !== fingerprint(item))) throw new Error("Documentation adapter returned an invalid original")
+        await ports.store.external(ports.root, item)
+      }
+      dirty = true
+      await refresh(false, signal)
+      return results
+    },
+    search: (query, session, provider, signal, record) => retrieve(query, { session, provider, signal, record, docs: false, memory: false }),
+    symbol: api.symbol,
+    view: (focus, session, signal) => api.view({ focus, session, signal, limit: 50 }),
+    snapshot: (signal) => refresh(false, signal),
+  })
+  const workshop = investigation({
+    root: ports.root,
+    resolve: async (model) => {
+      if (!(await config(ports.root)).investigation) throw new Error("Enable investigation in .kilo/forge.jsonc to use the investigative workshop")
+      if (!ports.turn) throw new Error("This host does not support investigative tool calling")
+      if (ports.resolve) return ports.resolve(model)
+      if (model) return model
+      throw new Error("Select a model for investigation")
+    },
+    scope: async (session, model, signal) => {
+      await ports.permit?.({ tool: "forge_investigate", pattern: ports.root, session, signal })
+      return tools.scope(session, model, signal)
+    },
+    load: (session, key) => ports.store.investigation(ports.root, session, key),
+    save: (record, revision) => ports.store.investigationSave(record, revision),
+    turn: (input) => ports.turn!(input),
+    execute: tools.execute,
+    check: tools.check,
+    inherit: async (previous, session, model, signal) => {
+      if (previous.session && previous.session !== session) throw new Error("Previous edits belong to a different session")
+      const record = await writer.get(previous.id, previous.session ?? session, signal)
+      if (record.revision !== previous.revision || record.state !== "ready" || record.model.providerID !== model.providerID) throw new Error("Review previous prompt edits and sharing before investigating with them")
+      return { edits: record.edits ?? [], dependencies: record.dependencies }
+    },
+  })
+  const writer = drafting({
+    root: ports.root,
+    investigation: workshop.get,
+    load: (key, session) => ports.store.prepared(ports.root, session, key),
+    save: (record, revision) => ports.store.preparedSave(record, revision),
+    check: async (record, signal) => {
+      const parent = await ports.store.investigation(ports.root, record.scope, record.investigation)
+      if (!parent || parent.revision !== record.parent || parent.state !== "findings_ready"
+        || record.scope !== record.session && record.scope !== ""
+        || !isDeepStrictEqual(parent.model, record.model)
+        || record.scope === record.session && parent.policy !== record.policy
+        || parent.destination !== record.destination) throw new Error("Prepared direction no longer matches its investigation")
+      const originals = new Map([...parent.dependencies ?? [], ...parent.observations.flatMap((item) => item.sources)].map((item) => [item.id, item]))
+      const needed = new Set(record.findings.flatMap((item) => [...item.evidence, ...item.counterevidence]))
+      if (record.findings.some((item) => !parent.findings.some((original) => isDeepStrictEqual(original, item)))
+        || needed.size !== record.sources.length
+        || record.sources.some((item) => !needed.has(item.id) || !isDeepStrictEqual(originals.get(item.id), item))) throw new Error("Prepared evidence does not match the chosen findings")
+      if (!isDeepStrictEqual(record.dependencies, [...originals.values()])) throw new Error("Prepared privacy dependencies were changed")
+      await tools.check({ ...parent, session: record.session, policy: record.policy }, signal)
+    },
+    write: async (input) => {
+      if (!ports.write) throw new Error("This host does not support the investigation prompt writer")
+      return ports.write(input)
+    },
+  })
+  async function bind(input: { binding: PreparationBinding; text: string; session: string; model: EnhancementModel }, signal?: AbortSignal) {
+    const reference = decode(PreparationBinding, input.binding)
+    const local = await ports.store.prepared(ports.root, input.session, reference.id)
+    if (reference.session && reference.session !== input.session) throw new Error("Prepared prompt belongs to a different session")
+    const previous = reference.session === "" ? await ports.store.prepared(ports.root, "", reference.id)
+      : local ?? await ports.store.prepared(ports.root, "", reference.id)
+    if (!previous || previous.state !== "ready" || previous.revision !== reference.revision
+      || previous.hash !== reference.hash || hash(input.text) !== reference.hash) throw new Error("Prepared prompt changed; review and stage its current revision")
+    const record = await writer.get(previous.id, previous.session, signal)
+    if (input.model.providerID !== record.model.providerID) throw new Error("Prepared prompt uses a different provider; review sharing and regenerate for the selected provider")
+    if (record.session !== input.session) {
+      if (record.session || local && local.scope !== "") throw new Error("A private prepared prompt cannot be moved to another session")
+      const scope = await tools.scope(input.session, input.model, signal)
+      if (scope.destination !== record.destination) throw new Error("Prepared prompt destination changed")
+      if (local && local.hash === record.hash && local.policy === scope.policy) {
+        const checked = await writer.get(local.id, local.session, signal)
+        await ports.store.handoff(ports.root, checked.session, checked.id)
+        return checked
+      }
+      const next: Prepared = { ...record, ...scope, session: input.session, revision: randomUUID(), updated: Date.now() }
+      await ports.store.preparedSave(next, local?.revision)
+      const checked = await writer.get(next.id, next.session, signal)
+      await ports.store.handoff(ports.root, checked.session, checked.id)
+      return checked
+    }
+    await ports.store.handoff(ports.root, record.session, record.id)
+    return record
+  }
+  async function handoff(session: string, model: EnhancementModel, signal?: AbortSignal, historical = false) {
+    const sources = new Map<string, Source>()
+    for (const key of await ports.store.handoffs(ports.root, session)) {
+      const record = historical ? await ports.store.prepared(ports.root, session, key) : await writer.get(key, session, signal)
+      if (!record) throw new Error("Admitted preparation is unavailable")
+      if (record.state !== "ready" || record.model.providerID !== model.providerID) throw new Error("Session contains prepared context that must be reviewed for this provider")
+      // Coding edits do not rewrite an already-admitted historical task. Current
+      // source eligibility and private-document versions remain revocable.
+      if (historical) await tools.admitted(record, signal)
+      for (const source of record.dependencies) sources.set(source.id, source)
+    }
+    return [...sources.values()]
+  }
   function fence<A extends unknown[], B>(run: (...args: A) => Promise<B>) {
     return (...args: A) => ports.store.fenced(ports.root, () => run.apply(api, args))
   }
@@ -1228,6 +1406,17 @@ export function engine(ports: Ports) {
   }
   return {
     ...api,
+    investigationStatus: async () => ({ enabled: !!(await config(ports.root)).investigation }),
+    investigate: (input: Parameters<typeof workshop.start>[0]) => client((signal) => ports.store.fenced(ports.root, () => workshop.start({ ...input, signal })), input.signal),
+    investigation: (key: string, session = "", signal?: AbortSignal) => client((abort) => ports.store.fenced(ports.root, () => workshop.get(key, session, abort)), signal),
+    chooseDirection: (input: Parameters<typeof writer.choose>[0], signal?: AbortSignal) => client((abort) => ports.store.fenced(ports.root, () => writer.choose(input, abort)), signal),
+    writePrompt: (input: Parameters<typeof writer.write>[0], signal?: AbortSignal) => client((abort) => ports.store.fenced(ports.root, () => writer.write(input, abort)), signal),
+    preparedPrompt: (key: string, session = "", signal?: AbortSignal) => client((abort) => ports.store.fenced(ports.root, () => writer.get(key, session, abort)), signal),
+    editPrompt: (input: Parameters<typeof writer.edit>[0], signal?: AbortSignal) => client((abort) => ports.store.fenced(ports.root, () => writer.edit(input, abort)), signal),
+    bindPrompt: (input: Parameters<typeof bind>[0], signal?: AbortSignal) => client((abort) => ports.store.fenced(ports.root, () => bind(input, abort)), signal),
+    handoff: (session: string, model: EnhancementModel, signal?: AbortSignal) => client((abort) => ports.store.fenced(ports.root, () => handoff(session, model, abort)), signal),
+    codingContext: (session: string, model: EnhancementModel, signal?: AbortSignal) => client((abort) => ports.store.fenced(ports.root, () => handoff(session, model, abort, true)), signal),
+    read: (input: Parameters<typeof tools.read>[0], session = "", signal?: AbortSignal) => client((abort) => ports.store.fenced(ports.root, () => tools.read(input, session, abort)), signal),
     embeddings: embedding ? {
       jobs: {
         start: (key: string, session = "", signal?: AbortSignal) => client((abort) => embedding.jobs.start(key, session, abort), signal),

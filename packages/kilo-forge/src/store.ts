@@ -13,6 +13,8 @@ import { consistent } from "./embedding-usage"
 import { tracking, track, observed } from "./embedding-observation"
 import * as requests from "./request-observation"
 import { classification } from "./references"
+import { Investigation } from "./investigation"
+import { Prepared } from "./writing"
 
 export type Value = string | number | null
 export type Query = { text: string; values?: readonly Value[] }
@@ -82,6 +84,17 @@ export function store(sql: SQL) {
     await ready
     const row = (await sql.all({ text: "SELECT body FROM forge_records WHERE workspace = ? AND kind = ? AND id = ?", values: [root, kind, key] })).at(0)
     return row ? JSON.parse(String(row.body)) as unknown : undefined
+  }
+
+  async function revise(kind: "investigation" | "preparation", value: Investigation | Prepared, revision?: string) {
+    await ready
+    const key = JSON.stringify([value.session, value.id])
+    // The SQL precondition fences concurrent attempts across engine instances.
+    await commit(value.root, [{
+      text: "INSERT INTO forge_records(workspace,kind,id,body,updated) VALUES(?,?,?,CASE WHEN ? = 'preparation' AND EXISTS (SELECT 1 FROM forge_records WHERE workspace = ? AND kind = 'preparation-retired' AND id = ?) THEN NULL WHEN (? IS NULL AND NOT EXISTS (SELECT 1 FROM forge_records WHERE workspace = ? AND kind = ? AND id = ?)) OR (? IS NOT NULL AND EXISTS (SELECT 1 FROM forge_records WHERE workspace = ? AND kind = ? AND id = ? AND json_extract(body,'$.revision') = ?)) THEN ? ELSE NULL END,?) ON CONFLICT(workspace,kind,id) DO UPDATE SET body = excluded.body, updated = excluded.updated",
+      values: [value.root, kind, key, kind, value.root, value.id, revision ?? null, value.root, kind, key, revision ?? null, value.root, kind, key, revision ?? null, JSON.stringify(value), value.updated],
+    }])
+    changed(value.root, "request", value.session)
   }
 
   async function epoch(root: string) {
@@ -186,6 +199,43 @@ export function store(sql: SQL) {
     ready,
     guard,
     access,
+    async investigation(root: string, session: string, key: string) {
+      const value = await get(root, "investigation", JSON.stringify([session, key]))
+      if (value == null) return undefined
+      const record = decode(Investigation, value)
+      if (record.root !== root || record.session !== session || record.id !== key) throw new Error("Investigation scope does not match its stored identity")
+      return record
+    },
+    investigationSave(value: Investigation, revision?: string) {
+      return revise("investigation", decode(Investigation, value), revision)
+    },
+    async prepared(root: string, session: string, key: string) {
+      const value = await get(root, "preparation", JSON.stringify([session, key]))
+      if (value == null) return undefined
+      const record = decode(Prepared, value)
+      if (record.root !== root || record.session !== session || record.id !== key) throw new Error("Prepared direction scope does not match its stored identity")
+      return record
+    },
+    preparedSave(value: Prepared, revision?: string) {
+      return revise("preparation", decode(Prepared, value), revision)
+    },
+    async handoffs(root: string, session: string): Promise<string[]> {
+      await ready
+      const rows = await sql.all({
+        text: "SELECT body FROM forge_records WHERE workspace = ? AND kind = 'handoff' AND json_extract(body,'$.session') = ? ORDER BY id LIMIT 101",
+        values: [root, session],
+      })
+      if (rows.length > 100) throw new Error("Session preparation history exceeds its validation limit; start a new session")
+      return rows.map((row) => {
+        const value = JSON.parse(String(row.body)) as unknown
+        return decode(Prepared.fields.id, value != null && typeof value === "object" && "id" in value ? value.id : undefined)
+      })
+    },
+    async handoff(root: string, session: string, key: string) {
+      const current = await this.handoffs(root, session)
+      if (!current.includes(key) && current.length >= 100) throw new Error("Session preparation history is full; start a new session")
+      await put(root, "handoff", JSON.stringify([session, key]), { session, id: key })
+    },
     detached<A>(run: () => A) { return context.exit(run) },
     async fenced<A>(root: string, run: () => Promise<A>) { return (await guard(root)).run(run) },
     changed,
@@ -487,7 +537,8 @@ export function store(sql: SQL) {
         prune(root),
         { text: "DELETE FROM forge_sources WHERE workspace = ? AND json_extract(body, '$.kind') = 'summary'", values: [root] },
         { text: "DELETE FROM forge_records WHERE workspace = ? AND kind = 'external' AND json_extract(body, '$.kind') = 'summary'", values: [root] },
-        { text: "DELETE FROM forge_records WHERE workspace = ? AND kind IN ('request', 'request-info', 'cache', 'snapshot', 'inventory', 'inventory-scope', 'embedding-job', 'embedding-attempt')", values: [root] },
+        { text: "INSERT OR REPLACE INTO forge_records(workspace,kind,id,body,updated) SELECT workspace,'preparation-retired',json_extract(body,'$.id'),'true',? FROM forge_records WHERE workspace = ? AND kind = 'preparation'", values: [Date.now(), root] },
+        { text: "DELETE FROM forge_records WHERE workspace = ? AND kind IN ('request', 'request-info', 'cache', 'snapshot', 'inventory', 'inventory-scope', 'embedding-job', 'embedding-attempt', 'investigation', 'preparation')", values: [root] },
         { text: "DELETE FROM forge_relations WHERE workspace = ?", values: [root] },
         { text: "DELETE FROM forge_records WHERE workspace = ? AND kind IN ('content', 'collection', 'embedding-consent') AND id = ?", values: [root, key] },
         { text: "DELETE FROM forge_records WHERE workspace = ? AND kind = 'import' AND json_extract(body, '$.collection') = ?", values: [root, key] },
@@ -587,11 +638,11 @@ export function store(sql: SQL) {
         warnings: [...inventory.warnings, ...(changed ? ["Knowledge changed; source browsing restarted at the first page."] : []), ...(rows.length > limit ? [`More sources are available on the next page. Relationships show only endpoints on this page.`] : [])],
       }
     },
-    async latest(root: string, session: string, purpose: string) {
+    async latest(root: string, session: string, purpose: string | readonly string[]) {
       await ready
       const row = (await sql.all({
-        text: "SELECT body FROM forge_records WHERE workspace = ? AND kind = 'request-info' AND json_extract(body, '$.session') = ? AND json_extract(body, '$.purpose') = ? ORDER BY json_extract(body, '$.observed') DESC, id DESC LIMIT 1",
-        values: [root, session, purpose],
+        text: "SELECT body FROM forge_records WHERE workspace = ? AND kind = 'request-info' AND json_extract(body, '$.session') = ? AND json_extract(body, '$.purpose') IN (SELECT value FROM json_each(?)) ORDER BY json_extract(body, '$.observed') DESC, id DESC LIMIT 1",
+        values: [root, session, JSON.stringify(typeof purpose === "string" ? [purpose] : purpose)],
       })).at(0)
       return row ? decode(RequestInfo, JSON.parse(String(row.body))) : undefined
     },
@@ -660,8 +711,8 @@ export function store(sql: SQL) {
       queries.push(prune(snapshot.root))
       queries.push({ text: "INSERT OR REPLACE INTO forge_records(workspace,kind,id,body,updated) VALUES(?,?,?,?,?)", values: [snapshot.root, "snapshot", "current", await pack(snapshot), Date.now()] })
       queries.push(
-        { text: "DELETE FROM forge_relations WHERE workspace = ?", values: [snapshot.root] },
-        { text: "INSERT INTO forge_relations(workspace,id,source,target,position,body) SELECT ?,json_extract(value,'$.id'),json_extract(value,'$.from'),json_extract(value,'$.to'),CAST(key AS INTEGER),value FROM json_each(?)", values: [snapshot.root, JSON.stringify(snapshot.relations)] },
+        { text: "DELETE FROM forge_relations WHERE workspace = ? AND id NOT IN (SELECT value FROM json_each(?))", values: [snapshot.root, JSON.stringify(snapshot.relations.map((item) => item.id))] },
+        { text: "INSERT INTO forge_relations(workspace,id,source,target,position,body) SELECT ?,json_extract(value,'$.id'),json_extract(value,'$.from'),json_extract(value,'$.to'),CAST(key AS INTEGER),value FROM json_each(?) WHERE true ON CONFLICT(workspace,id) DO UPDATE SET source=excluded.source,target=excluded.target,position=excluded.position,body=excluded.body WHERE forge_relations.body != excluded.body OR forge_relations.position != excluded.position", values: [snapshot.root, JSON.stringify(snapshot.relations)] },
         { text: "INSERT OR REPLACE INTO forge_records(workspace,kind,id,body,updated) VALUES(?,?,?,?,?)", values: [snapshot.root, "relation-index", "current", "1", Date.now()] },
       )
       const counts: Record<string, number> = {}

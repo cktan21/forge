@@ -216,7 +216,7 @@ test("provider schemas avoid unsupported intersections without dropping refineme
             summary: { type: "string", minLength: 1 },
             hypotheses: { items: { anyOf: [
               { type: "string" },
-              { properties: { statement: { type: "string", pattern: "\\S" } } },
+              { properties: { statement: { type: "string", pattern: "^[\\s\\S]*\\S[\\s\\S]*$" } } },
             ] } },
             questions: { items: { anyOf: expect.arrayContaining([
               { type: "object", properties: {

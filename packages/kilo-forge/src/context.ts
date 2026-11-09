@@ -148,7 +148,8 @@ function relevance(matches: readonly Match[], query?: { text: string }) {
 
 export function render(match: Match) {
   const source = match.source
-  return `[${source.id}] ${source.uri}:${source.start}-${source.end} (${source.kind}; ${source.status}; ${source.method}${source.detail.page ? `; page ${source.detail.page}` : ""})\n${source.text}\n`
+  const version = source.method === "context7" ? `; project ${source.detail.projectVersion}; docs ${source.detail.documentationVersion}; ${source.detail.compatibility}` : ""
+  return `[${source.id}] ${source.uri}:${source.start}-${source.end} (${source.kind}; ${source.status}; ${source.method}${source.detail.page ? `; page ${source.detail.page}` : ""}${version})\n${source.text}\n`
 }
 
 export function fuse(lists: readonly (readonly Match[])[], limit = 100) {

@@ -73,6 +73,34 @@ async function setup(complete?: Ports["complete"], opts: Partial<Ports> = {}) {
   }
 }
 
+test("watcher events during the initial scan are reconciled before refresh completes", async () => {
+  const entered = Promise.withResolvers<void>()
+  const release = Promise.withResolvers<void>()
+  let calls = 0
+  const fixture = await setup(undefined, { history: async () => {
+    calls++
+    if (calls === 1) { entered.resolve(); await release.promise }
+    return []
+  } })
+  const changed = Promise.withResolvers<void>()
+  let ready = false
+  const unsubscribe = fixture.storage.subscribe(fixture.root, (event) => { if (ready && event.topic === "job") changed.resolve() })
+  try {
+    await mkdir(path.join(fixture.root, ".kilo"))
+    await writeFile(path.join(fixture.root, ".kilo/forge.jsonc"), '{"history":true}')
+    const pending = fixture.api.refresh()
+    await entered.promise
+    ready = true
+    await writeFile(path.join(fixture.root, "queue.ts"), "export function reconciled() { return true }")
+    await changed.promise
+    release.resolve()
+    const snapshot = await pending
+    expect(calls).toBeGreaterThanOrEqual(2)
+    expect(snapshot.sources.some((item) => item.label === "reconciled")).toBe(true)
+    expect((await fixture.storage.search(fixture.root, "reconciled")).length).toBeGreaterThan(0)
+  } finally { release.resolve(); unsubscribe(); await fixture.close() }
+})
+
 test("explicit enhancement models remain request-scoped during concurrent generations and acceptance", async () => {
   const calls: Array<Parameters<Ports["complete"]>[0]> = []
   const cfg = { provider: "default" }
