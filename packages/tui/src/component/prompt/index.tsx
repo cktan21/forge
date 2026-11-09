@@ -27,6 +27,7 @@ import { useSync } from "../../context/sync"
 import { useNudge } from "@/kilocode/cli/cmd/tui/context/nudge" // kilocode_change
 import { useEvent } from "../../context/event"
 import { forgePrompt } from "../../kilocode/forge/prompt" // kilocode_change
+import * as ForgeHandoff from "../../kilocode/forge/handoff" // kilocode_change
 import { useDirectoryPrompt } from "../../kilocode/directory-prompt" // kilocode_change
 import { editorSelectionKey, useEditorContext, type EditorSelection } from "../../context/editor"
 import { normalizePromptContent, openEditor } from "../../editor"
@@ -498,7 +499,7 @@ export function Prompt(props: PromptProps) {
               return acc.replace(p.source.text.value, p.text)
             }, store.prompt.input)
 
-          const nonTextParts = store.prompt.parts.filter((p) => p.type !== "text")
+          const nonTextParts = store.prompt.parts.filter((p) => p.type !== "text" || ForgeHandoff.tagged(p)) // kilocode_change
 
           const value = text
           const content = await openEditor({
@@ -810,6 +811,7 @@ export function Prompt(props: PromptProps) {
         }
 
         draft.extmarkToPartIndex = newMap
+        newParts.push(...draft.prompt.parts.filter(ForgeHandoff.tagged)) // kilocode_change - hidden provenance survives editing
         draft.prompt.parts = newParts
       }),
     )
@@ -1197,6 +1199,24 @@ export function Prompt(props: PromptProps) {
           ]
         : []
 
+    // kilocode_change start - validate derived evidence without embedding it in editable text
+    const captured = JSON.stringify(store.prompt)
+    const scope = { directory: project.instance.directory() || sdk.directory, workspace: project.workspace.current(), session: sessionID }
+    const forge = await ForgeHandoff.submit({
+      client: sdk.client, draft: store.prompt, text: inputText, scope, model: selectedModel, mode: store.mode,
+      valid: () => !steer() && JSON.stringify(store.prompt) === captured
+        && (project.instance.directory() || sdk.directory) === scope.directory && project.workspace.current() === scope.workspace,
+    }).catch((err) => {
+      toast.show({ title: "Prepared prompt not sent", message: errorMessage(err), variant: "error" })
+      return false as const
+    })
+    if (forge === false) return
+    if (forge) {
+      const next = ForgeHandoff.attach(store.prompt, forge)
+      setStore("prompt", next)
+      restoreExtmarksFromParts(next.parts)
+    }
+    // kilocode_change end
     const target = sync.session.get(sessionID) // kilocode_change - subagent steering target
     if (store.mode === "shell" && !steer() /* kilocode_change - subagent views never run shell */) {
       move.startSubmit()
@@ -1249,6 +1269,7 @@ export function Prompt(props: PromptProps) {
                 type: "text",
                 text: inputText,
                 ...KiloSteer.mark(target), // kilocode_change - mark human steering for the parent notice
+                ...(forge ? { metadata: ForgeHandoff.metadata(forge) } : {}), // kilocode_change
               },
               ...nonTextParts,
             ],

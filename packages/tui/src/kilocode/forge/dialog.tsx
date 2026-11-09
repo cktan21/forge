@@ -18,7 +18,7 @@ import { ForgeAttachments } from "./attachments"
 import { ForgeLibrary } from "./library"
 import { compare, details } from "@kilocode/forge/review"
 import { navigation } from "./back"
-import { ForgeEnhance } from "./enhance"
+import { ForgeWorkshop } from "./workshop"
 
 type Proposal = NonNullable<Awaited<ReturnType<KiloClient["forge"]["enhance"]>>["data"]>
 type Opportunity = NonNullable<Awaited<ReturnType<KiloClient["forge"]["ideas"]>>["data"]>[number]
@@ -26,7 +26,7 @@ export type Command = "overview" | "ideas" | "enhance" | "map"
 
 export function ForgeDialog(props: { command: Command; text?: string; previous?: Proposal; answers?: string }) {
   if (props.command === "overview" || props.command === "map") return <ForgeKnowledge command={props.command} />
-  if (props.command === "enhance") return <ForgeEnhance text={props.text} previous={props.previous} answers={props.answers} />
+  if (props.command === "enhance") return <ForgeWorkshop text={props.text} previous={props.previous} answers={props.answers} />
   return <ForgeReview command={props.command} text={props.text} previous={props.previous} answers={props.answers} />
 }
 

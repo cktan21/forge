@@ -38,6 +38,7 @@ async function mount(root: string, command: Command, provider = false, state: "r
       const url = new URL(request.url)
       requests.push(url.pathname)
       if (state === "error") return Response.json({ message: "Forge is unavailable. Try again." }, { status: 503 })
+      if (url.pathname === "/forge/investigations/status") return Response.json({ enabled: false })
       if (url.pathname === "/forge/knowledge") {
         const query = url.searchParams.get("query") ?? ""
         const offset = Number(url.searchParams.get("offset") ?? 0)
@@ -557,5 +558,5 @@ test("prepared tasks remain readable without a composer and cannot run or silent
     ui.app.mockInput.pressKey(key)
     await ui.frame("Reopen /enhance from a chat")
   }
-  expect(ui.requests).toEqual(["/forge/enhance/stream"])
+  expect(ui.requests).toEqual(["/forge/investigations/status", "/forge/enhance/stream"])
 })

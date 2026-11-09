@@ -32,7 +32,7 @@ import { displaySlice, promptOffsetWidth } from "../../src/prompt/display"
 import { FrecencyProvider } from "../../src/prompt/frecency"
 import { PromptHistoryProvider } from "../../src/prompt/history"
 import { PromptStashProvider } from "../../src/prompt/stash"
-import { ToastProvider } from "../../src/ui/toast"
+import { ToastProvider, useToast } from "../../src/ui/toast"
 import { wait } from "../cli/cmd/tui/sync-fixture"
 import { tmpdir } from "../fixture/fixture"
 import { TestTuiContexts } from "../fixture/tui-environment"
@@ -46,6 +46,10 @@ import { usage } from "@kilocode/forge/schema"
 import { useDialog } from "../../src/ui/dialog"
 import { forgePrompt } from "../../src/kilocode/forge/prompt"
 import { stream } from "./forge-stream"
+import type { Investigation, Round } from "@kilocode/forge/investigation"
+import { compose, type Prepared } from "@kilocode/forge/writing"
+import { reference as binding } from "@kilocode/forge/handoff"
+import { hash } from "@kilocode/forge/util"
 
 function record(value: unknown): value is Record<string, unknown> {
   return value != null && typeof value === "object" && !Array.isArray(value)
@@ -60,7 +64,31 @@ function enhanced(original: string, questions: readonly unknown[] = []) {
   })
 }
 
-async function mount(root: string, valid = true, collections: readonly Collection[] = [], selections: readonly Selection[] = [], intercept?: (path: string, request: Request) => Promise<Response | undefined>, browser?: () => Promise<string>, directory = () => root, connection?: { url: string; headers: Record<string, string> }) {
+function workshop(root: string) {
+  const item = source("queue.ts", "export const rawEvidenceCanary = 'unselected raw source text'", "code")
+  const investigation: Investigation = {
+    version: 1, id: crypto.randomUUID(), revision: crypto.randomUUID(), digest: "fixture", root, session: "ses_forge",
+    original: "Fix duplicate queue items", answers: "", feedback: "", model: { providerID: "test", modelID: "test" },
+    destination: "", policy: "", state: "findings_ready", intent: "Fix duplicate queue items", summary: "Review a supported direction.",
+    findings: [
+      { id: "fix", title: "Guard duplicate queue identifiers", kind: "defect", support: "observed", explanation: "The append path lacks a duplicate check.", benefit: "Avoid repeated work.", evidence: [item.id], counterevidence: [], unknowns: [], action: "Add a duplicate guard.", verification: ["Add a regression test."] },
+      { id: "other", title: "Unselected redesign canary", kind: "improvement", support: "inferred", explanation: "A redesign could be considered.", benefit: "Potential maintenance benefit.", evidence: [item.id], counterevidence: [], unknowns: ["Not required for this defect."], action: "Investigate separately.", verification: ["Compare behavior."] },
+    ],
+    questions: [], limitations: ["Tests were not executed."],
+    observations: [{ id: "read", tool: "forge_read_file", input: { path: "queue.ts" }, output: item.text, sources: [item], observed: 1 }],
+    turns: 2, calls: 1, bytes: 1000, started: 1, updated: 2, usage: usage(),
+  }
+  const prompt: Prepared = {
+    version: 1, id: crypto.randomUUID(), revision: crypto.randomUUID(), root, session: "ses_forge", scope: "ses_forge",
+    investigation: investigation.id, parent: investigation.revision, digest: "fixture",
+    requirements: [{ id: "user", label: "Original user request", text: investigation.original }],
+    findings: [], sources: [item], dependencies: [item], model: investigation.model, destination: "", policy: "",
+    state: "selected", prompt: "", hash: "", started: 1, updated: 2, usage: usage(),
+  }
+  return { investigation, prompt, stale: false }
+}
+
+async function mount(root: string, valid = true, collections: readonly Collection[] = [], selections: readonly Selection[] = [], intercept?: (path: string, request: Request) => Promise<Response | undefined>, browser?: () => Promise<string>, directory = () => root, connection?: { url: string; headers: Record<string, string> }, scenario?: ReturnType<typeof workshop>) {
   await Bun.write(`${root}/kv.json`, JSON.stringify({ animations_enabled: false, vim_enabled: false }))
   const requests: { path: string; body: Record<string, unknown> }[] = []
   const session = {
@@ -94,6 +122,10 @@ async function mount(root: string, valid = true, collections: readonly Collectio
     async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = new Request(input, init)
       const path = new URL(request.url).pathname
+      if (request.method === "GET" && path === "/forge/investigations/status") return json({ enabled: !!scenario })
+      if (request.method === "GET" && scenario && path.startsWith("/forge/preparations/")) return scenario.stale
+        ? json({ message: "Evidence changed; review the prepared prompt." }, { status: 409 }) : json(scenario.prompt)
+      if (request.method === "GET" && scenario && path.startsWith("/forge/investigations/")) return json(scenario.investigation)
       if (request.method === "GET" && path === "/forge/knowledge") return json({ collections, provider: "" })
       if (request.method === "GET" && path === "/forge/status") return json({
         inventory: { root, generation: "fixture", indexed: false, files: 0, counts: {}, warnings: [] },
@@ -104,6 +136,38 @@ async function mount(root: string, valid = true, collections: readonly Collectio
         const body: unknown = await request.json()
         if (!record(body)) throw new Error("Expected a JSON request object")
         requests.push({ path, body })
+        if (scenario && path === "/forge/investigations/stream") {
+          const response = await intercept?.(path, request)
+          if (response) return response
+          scenario.investigation = {
+            ...scenario.investigation, id: String(body.key), original: String(body.text),
+            answers: typeof body.answers === "string" ? body.answers : "",
+            feedback: typeof body.feedback === "string" ? body.feedback : "",
+          }
+          return new Response(`data: ${JSON.stringify({ type: "result", investigation: scenario.investigation })}\n\n`, { headers: { "content-type": "text/event-stream" } })
+        }
+        if (scenario && path === "/forge/preparations") {
+          expect(Array.isArray(body.selected)).toBe(true)
+          scenario.prompt = {
+            ...scenario.prompt, id: String(body.key), investigation: scenario.investigation.id,
+            requirements: [{ id: "user", label: "Original user request", text: scenario.investigation.original }],
+            findings: scenario.investigation.findings.filter((item) => Array.isArray(body.selected) && body.selected.includes(item.id)),
+          }
+          return json(scenario.prompt)
+        }
+        if (scenario && path === "/forge/preparations/write") {
+          scenario.prompt = { ...scenario.prompt, ...compose({
+            objective: "Fix duplicated queue identifiers.", basis: "The inspected append path lacks a guard; runtime verification remains pending.",
+            changes: ["Add a duplicate guard."], constraints: ["Keep insertion order."], verification: ["Proposed: add a repeated-identifier regression."],
+            evidence: scenario.prompt.sources.map((item) => item.id), requirements: ["user"],
+          }, scenario.prompt), revision: crypto.randomUUID(), state: "ready" }
+          return json(scenario.prompt)
+        }
+        if (scenario && path === "/forge/preparations/edit") {
+          scenario.prompt = { ...scenario.prompt, prompt: String(body.text), hash: hash(String(body.text)), revision: crypto.randomUUID() }
+          return json(scenario.prompt)
+        }
+        if (scenario && path === "/forge/preparations/bind") return json(scenario.prompt)
         const response = await intercept?.(path, request)
         if (response) return path === "/forge/enhance/stream" ? stream(response) : response
         if (path === "/forge/knowledge/preview") return json({ location: body.location, files: 1, bytes: 30, excluded: 0, partial: false, samples: [{ name: body.label, bytes: 30, text: "Previewed document evidence" }], warnings: [] })
@@ -127,7 +191,7 @@ async function mount(root: string, valid = true, collections: readonly Collectio
     },
     { preconnect: globalThis.fetch.preconnect.bind(globalThis.fetch) },
   )
-  const refs: { prompt?: ReturnType<typeof usePromptRef>; permission?: ReturnType<typeof usePermission>; route?: ReturnType<typeof useRoute>; project?: ReturnType<typeof useProject> } = {}
+  const refs: { prompt?: ReturnType<typeof usePromptRef>; permission?: ReturnType<typeof usePermission>; route?: ReturnType<typeof useRoute>; project?: ReturnType<typeof useProject>; toast?: ReturnType<typeof useToast> } = {}
   function Content() {
     const dialog = useDialog()
     const keymap = useOpencodeKeymap()
@@ -140,6 +204,7 @@ async function mount(root: string, valid = true, collections: readonly Collectio
     refs.permission = usePermission()
     refs.route = useRoute()
     refs.project = useProject()
+    refs.toast = useToast()
     return <Prompt sessionID={session.id} ref={(ref) => prompt.set(ref)} />
   }
   function Ready() {
@@ -231,6 +296,7 @@ async function mount(root: string, valid = true, collections: readonly Collectio
       permission: refs.permission!,
       route: refs.route!,
       project: refs.project!,
+      toast: refs.toast!,
       async press(value: string) {
         app.renderer.stdin.emit("data", Buffer.from(value))
         await app.flush()
@@ -1749,4 +1815,485 @@ test.each(["timeout", "transport"] as const)("%s during a clarification revision
   await wait(() => ui.prompt.focused)
   expect(ui.requests.some((item) => item.path.startsWith("/session/"))).toBe(false)
   expect(ui.prompt.current.input).toContain('"option":"Developers"')
+})
+
+test("investigative workshop uses Enter to select, write, and stage without submitting", async () => {
+  await using root = await tmpdir()
+  const state = workshop(root.path)
+  using ui = await mount(root.path, true, [], [], undefined, undefined, () => root.path, undefined, state)
+  ui.prompt.set({ input: "/enhance Fix duplicate queue items", parts: [] })
+  await ui.press("\r")
+  await ui.frame("Guard duplicate queue identifiers")
+  expect(ui.requests.map((item) => item.path)).toEqual(["/forge/investigations/stream"])
+  await ui.press("\r")
+  await ui.frame("1 selected")
+  expect(ui.requests.map((item) => item.path)).toEqual(["/forge/investigations/stream"])
+  await ui.press("\r")
+  await ui.frame("[a] Use prompt")
+  expect(ui.requests.find((item) => item.path === "/forge/preparations")?.body.selected).toEqual(["fix"])
+  expect(ui.requests.some((item) => item.path.startsWith("/session/"))).toBe(false)
+  await ui.press("\r")
+  await wait(() => ui.prompt.focused)
+  expect(ui.prompt.current.input).toContain("Fix duplicate queue items")
+  expect(ui.prompt.current.input).not.toContain("rawEvidenceCanary")
+  expect(ui.prompt.current.input).not.toContain("Unselected redesign")
+  expect(ui.prompt.current.input).not.toContain("<forge-evidence>")
+  const value = binding(ui.prompt.current.parts)
+  expect(value?.hash).toBe(hash(ui.prompt.current.input))
+  await ui.press("\r")
+  await wait(() => ui.requests.some((item) => item.path === "/session/ses_forge/message"))
+  const request = ui.requests.find((item) => item.path === "/session/ses_forge/message")!
+  const parts = request.body.parts
+  expect(Array.isArray(parts)).toBe(true)
+  expect(binding(Array.isArray(parts) ? parts : [])?.id).toBe(value?.id)
+  expect(ui.requests.some((item) => item.path === "/forge/enhance/stream")).toBe(false)
+})
+
+test("investigative clarification after a bare slash command progresses with Enter and keeps controls visible", async () => {
+  await using root = await tmpdir()
+  const state = workshop(root.path)
+  state.investigation = {
+    ...state.investigation, state: "needs_input",
+    summary: "Detailed analysis canary. ".repeat(100),
+    findings: state.investigation.findings.map((item) => ({ ...item, explanation: "Long supporting explanation. ".repeat(100) })),
+    questions: [{ id: "target", question: "Which backend do you mean?", impact: "The repository has multiple backends.", options: ["Sandbox", "HTTP API", "Other"], optional: false }],
+  }
+  let calls = 0
+  using ui = await mount(root.path, true, [], [], async (path) => {
+    if (path === "/forge/investigations/stream" && ++calls === 2) {
+      state.investigation = { ...state.investigation, state: "findings_ready", questions: [] }
+    }
+    return undefined
+  }, undefined, () => root.path, undefined, state)
+  ui.app.renderer.resize(80, 24)
+  for (const key of "/enhance") await ui.press(key)
+  await ui.press("\r")
+  await ui.frame("What should the agent investigate?")
+  const draft = structuredClone(unwrap(ui.prompt.current))
+  expect(ui.requests).toHaveLength(0)
+  const input = ui.app.renderer.currentFocusedEditor
+  if (!(input instanceof TextareaRenderable)) throw new Error("Expected investigation input")
+  input.setText("fix the backend")
+  await ui.press("\r")
+  await ui.frame("Which backend do you mean?")
+  await ui.frame("Clarification 1/1")
+  await ui.frame("Space Select")
+  expect(ui.requests.at(0)?.body.text).toBe("fix the backend")
+  expect(ui.app.captureCharFrame()).toContain("Forge /enhance")
+  expect(ui.app.captureCharFrame()).not.toContain("Detailed analysis canary")
+  await ui.press("\r")
+  await ui.frame("Select an option with Space")
+  expect(ui.requests).toHaveLength(1)
+  await ui.press("\x1b")
+  await ui.frame("Enter / [c] Answer questions")
+  await ui.press("d")
+  await ui.press("\x1b[6~")
+  await ui.frame("Detailed analysis canary")
+  await ui.frame("Enter / [c] Answer questions")
+  ui.app.renderer.resize(60, 20)
+  await ui.frame("Enter / [c] Answer questions")
+  expect(ui.app.captureCharFrame()).toContain("Forge /enhance")
+  ui.app.renderer.resize(80, 24)
+  await ui.press("\r")
+  await ui.frame("Clarification 1/1")
+  await ui.frame("Which backend do you mean?")
+  expect(ui.requests).toHaveLength(1)
+  await ui.press("\x1b[B")
+  await ui.press(" ")
+  await ui.frame("[x] HTTP API")
+  await ui.press("c")
+  await ui.frame("Your answer or additional details.")
+  const editor = ui.app.renderer.currentFocusedEditor
+  if (!(editor instanceof TextareaRenderable)) throw new Error("Expected clarification input")
+  editor.setText("HTTP API: duplicate queue items")
+  await ui.press("\r")
+  await ui.frame("Clarification 1/1")
+  expect(ui.requests).toHaveLength(1)
+  await ui.press("\r")
+  await ui.frame("Choose what to include")
+  expect(ui.requests).toHaveLength(2)
+  expect(ui.requests.at(-1)?.body.text).toBe("fix the backend")
+  expect(ui.requests.at(-1)?.body.answers).toContain('"option":"HTTP API"')
+  expect(ui.requests.at(-1)?.body.answers).toContain('"comment":"HTTP API: duplicate queue items"')
+  expect(ui.requests.every((item) => item.path === "/forge/investigations/stream")).toBe(true)
+  expect(ui.prompt.current).toEqual(draft)
+  await ui.press("\x1b")
+  await wait(() => ui.prompt.focused)
+  expect(ui.requests).toHaveLength(2)
+})
+
+test.each(["empty", "contradicted"] as const)("investigative %s findings offer clarification through Enter", async (kind) => {
+  await using root = await tmpdir()
+  const state = workshop(root.path)
+  state.investigation = { ...state.investigation, findings: kind === "empty" ? [] : state.investigation.findings.map((item) => ({ ...item, support: "contradicted" })) }
+  using ui = await mount(root.path, true, [], [], undefined, undefined, () => root.path, undefined, state)
+  ui.prompt.set({ input: "/enhance Fix duplicate queue items", parts: [] })
+  await ui.press("\r")
+  await ui.frame("Enter / [c] Refine request")
+  await ui.press("\r")
+  await ui.frame("Your answers or feedback.")
+  expect(ui.requests.map((item) => item.path)).toEqual(["/forge/investigations/stream"])
+})
+
+test("investigative writing stays blocked on questions and answers survive returning to review", async () => {
+  await using root = await tmpdir()
+  const state = workshop(root.path)
+  state.investigation = { ...state.investigation, state: "needs_input", questions: [
+    { id: "target", question: "Which backend?", impact: "Different code paths.", options: ["Sandbox", "HTTP API"], optional: false },
+  ] }
+  using ui = await mount(root.path, true, [], [], undefined, undefined, () => root.path, undefined, state)
+  ui.prompt.set({ input: "/enhance fix the backend", parts: [] })
+  await ui.press("\r")
+  await ui.frame("Clarification 1/1")
+  await ui.press("\x1b[B")
+  await ui.press(" ")
+  await ui.frame("[x] HTTP API")
+  await ui.press("w")
+  expect(ui.requests).toHaveLength(1)
+  await ui.press("c")
+  await ui.frame("Your answer or additional details.")
+  await wait(() => !!ui.app.renderer.currentFocusedEditor?.focused && ui.app.renderer.currentFocusedEditor !== ui.input)
+  const editor = ui.app.renderer.currentFocusedEditor
+  if (!(editor instanceof TextareaRenderable)) throw new Error("Expected clarification input")
+  editor.setText("Duplicate queue items")
+  await ui.press("\x1b")
+  await ui.frame("Space Select")
+  await ui.press("\x1b")
+  await ui.frame("Answer questions")
+  await ui.press("w")
+  await ui.frame("Clarification 1/1")
+  await ui.frame("[x] HTTP API")
+  await ui.press("c")
+  await ui.frame("Your answer or additional details.")
+  await wait(() => !!ui.app.renderer.currentFocusedEditor?.focused && ui.app.renderer.currentFocusedEditor !== ui.input)
+  const saved = ui.app.renderer.currentFocusedEditor
+  if (!(saved instanceof TextareaRenderable)) throw new Error("Expected preserved clarification")
+  expect(saved.plainText).toBe("Duplicate queue items")
+  expect(ui.requests.map((item) => item.path)).toEqual(["/forge/investigations/stream"])
+})
+
+test("investigative questions support custom answers, optional skips, and accumulated clarification rounds", async () => {
+  await using root = await tmpdir()
+  const state = workshop(root.path)
+  state.investigation = { ...state.investigation, state: "needs_input", questions: [
+    { id: "target", question: "Which backend?", impact: "Choose the code path.", options: ["Sandbox", "HTTP API"], optional: false },
+    { id: "symptom", question: "What happens?", impact: "Describe the failure.", options: [], optional: false },
+    { id: "platform", question: "Which platform?", impact: "Optional context.", options: ["macOS", "Linux"], optional: true },
+  ] }
+  let calls = 0
+  using ui = await mount(root.path, true, [], [], async (path) => {
+    if (path !== "/forge/investigations/stream") return undefined
+    calls++
+    if (calls === 2) state.investigation = { ...state.investigation, questions: [
+      { id: "target", question: "Which environment?", impact: "Reused ID is a different question.", options: ["Development", "Production"], optional: false },
+    ] }
+    if (calls === 3) state.investigation = { ...state.investigation, state: "findings_ready", questions: [] }
+    return undefined
+  }, undefined, () => root.path, undefined, state)
+  ui.prompt.set({ input: "/enhance fix the backend", parts: [] })
+  await ui.press("\r")
+  await ui.frame("Clarification 1/3")
+  await ui.press("s")
+  await ui.frame("This question needs an answer")
+  await ui.press("\x1b[C")
+  await ui.frame("Clarification 2/3")
+  await ui.press("\r")
+  await ui.frame("Your answer or additional details.")
+  const editor = ui.app.renderer.currentFocusedEditor
+  if (!(editor instanceof TextareaRenderable)) throw new Error("Expected custom answer input")
+  editor.setText("Queue entries appear twice")
+  await ui.press("\r")
+  await ui.press("\x1b[C")
+  await ui.frame("Clarification 3/3")
+  await ui.press("s")
+  await ui.frame("Answer this required question")
+  expect(ui.requests).toHaveLength(1)
+  await ui.press(" ")
+  await ui.press("\r")
+  await ui.frame("Queue entries appear twice")
+  await ui.press("\r")
+  await ui.frame("Selected: Skipped")
+  await ui.press("\r")
+  await ui.frame("Which environment?")
+  await ui.frame("Selected: None")
+  expect(ui.requests).toHaveLength(2)
+  const first = ui.requests.at(-1)?.body.answers
+  expect(first).toContain('"option":"Sandbox"')
+  expect(first).toContain('"option":null,"comment":"Queue entries appear twice","skipped":false')
+  expect(first).toContain('"id":"platform","question":"Which platform?","option":null,"comment":"","skipped":true')
+  await ui.press("\x1b[B")
+  await ui.press(" ")
+  await ui.press("\r")
+  await ui.frame("Choose what to include")
+  expect(ui.requests).toHaveLength(3)
+  expect(ui.requests.at(-1)?.body.answers).toContain(String(first))
+  expect(ui.requests.at(-1)?.body.answers).toContain('"question":"Which environment?","option":"Production"')
+  expect(ui.requests.every((item) => item.path === "/forge/investigations/stream")).toBe(true)
+})
+
+test.each(["failure", "cancellation"] as const)("investigative answers survive %s without automatic retries", async (mode) => {
+  await using root = await tmpdir()
+  const state = workshop(root.path)
+  state.investigation = { ...state.investigation, state: "needs_input", questions: [
+    { id: "target", question: "Which backend?", impact: "Choose a target.", options: ["Sandbox", "HTTP API"], optional: false },
+  ] }
+  const done = Promise.withResolvers<void>()
+  const aborted = Promise.withResolvers<void>()
+  let calls = 0
+  using ui = await mount(root.path, true, [], [], async (path, request) => {
+    if (path !== "/forge/investigations/stream") return undefined
+    calls++
+    if (calls === 2) {
+      if (mode === "cancellation") {
+        request.signal.addEventListener("abort", () => aborted.resolve(), { once: true })
+        await done.promise
+      }
+      return new Response(`data: ${JSON.stringify({ type: "error", message: "Provider unavailable; answers preserved." })}\n\n`, { headers: { "content-type": "text/event-stream" } })
+    }
+    if (calls === 3) state.investigation = { ...state.investigation, state: "findings_ready", questions: [] }
+    return undefined
+  }, undefined, () => root.path, undefined, state)
+  ui.prompt.set({ input: "/enhance fix the backend", parts: [] })
+  await ui.press("\r")
+  await ui.frame("Clarification 1/1")
+  await ui.press(" ")
+  await ui.press("\r")
+  await wait(() => ui.requests.length === 2)
+  if (mode === "cancellation") { await ui.press("\x1b"); await aborted.promise; done.resolve() }
+  if (mode === "failure") await ui.frame("Provider unavailable")
+  await ui.frame("[x] Sandbox")
+  expect(ui.requests).toHaveLength(2)
+  await ui.press("\x1b[B")
+  await ui.press(" ")
+  await ui.frame("[x] HTTP API")
+  await ui.press("\r")
+  await ui.frame("Choose what to include")
+  expect(ui.requests).toHaveLength(3)
+  expect(ui.requests.at(-1)?.body.answers).toContain('"option":"HTTP API"')
+  expect(ui.requests.at(-1)?.body.answers).not.toContain('"option":"Sandbox"')
+  expect(String(ui.requests.at(-1)?.body.answers).match(/Clarification responses:/g)).toHaveLength(1)
+  expect(ui.prompt.current.input).toBe("/enhance fix the backend")
+})
+
+test("long investigative questions scroll while answer controls stay visible", async () => {
+  await using root = await tmpdir()
+  const state = workshop(root.path)
+  state.investigation = { ...state.investigation, state: "needs_input", questions: [
+    { id: "target", question: "Which backend behavior should change? ".repeat(25), impact: "Choose the relevant behavior.",
+      options: Array.from({ length: 8 }, (_, index) => `Option ${index + 1}: ${"Detailed choice text. ".repeat(4)}`), optional: false },
+  ] }
+  using ui = await mount(root.path, true, [], [], undefined, undefined, () => root.path, undefined, state)
+  ui.app.renderer.resize(60, 20)
+  ui.prompt.set({ input: "/enhance fix the backend", parts: [] })
+  await ui.press("\r")
+  await ui.frame("Clarification 1/1")
+  await ui.frame("Space Select")
+  await ui.press("\x1b[6~")
+  await ui.frame("Space Select")
+  expect(ui.app.captureCharFrame()).toContain("Forge /enhance")
+  for (let index = 0; index < 7; index++) await ui.press("\x1b[B")
+  await ui.press(" ")
+  await ui.frame("[x] Option 8")
+  await ui.frame("Space Select")
+  await ui.press("c")
+  await ui.frame("Enter saves;")
+  expect(ui.requests).toHaveLength(1)
+})
+
+test("investigative review scrolls long findings and sources without hiding its next action", async () => {
+  await using root = await tmpdir()
+  const state = workshop(root.path)
+  state.investigation = { ...state.investigation, findings: state.investigation.findings.map((item) => ({
+    ...item, action: "A long action that wraps within a small terminal. ".repeat(50),
+  })) }
+  using ui = await mount(root.path, true, [], [], undefined, undefined, () => root.path, undefined, state)
+  ui.app.renderer.resize(80, 24)
+  ui.prompt.set({ input: "/enhance Fix duplicate queue items", parts: [] })
+  await ui.press("\r")
+  await ui.frame("Guard duplicate queue identifiers")
+  await ui.press("\x1b[B")
+  await ui.frame("Unselected redesign canary")
+  await ui.frame("Enter / Space Select highlighted finding")
+  await ui.press("\r")
+  await ui.frame("1 selected")
+  await ui.press("\r")
+  await ui.frame("[a] Use prompt")
+  await ui.press("s")
+  await ui.frame("rawEvidenceCanary")
+  await ui.press("\r")
+  await ui.frame("[a] Use prompt")
+  expect(ui.requests.some((item) => item.path.startsWith("/session/"))).toBe(false)
+})
+
+test("investigative provider errors remain visible without losing input or retrying automatically", async () => {
+  await using root = await tmpdir()
+  const state = workshop(root.path)
+  const round: Round = {
+    request: crypto.randomUUID(), number: 1, final: false, state: "failed", started: 1, updated: 2,
+    summary: "Provider rate limit; no tool executed.", included: [], omitted: [], requested: 0, inspections: [],
+  }
+  using ui = await mount(root.path, true, [], [], async (path) => {
+    if (path !== "/forge/investigations/stream") return undefined
+    return new Response(`data: ${JSON.stringify({
+      type: "progress", stage: "Investigation did not complete", turns: 0, calls: 0, journal: [round], observations: [],
+    })}\n\ndata: ${JSON.stringify({
+      type: "error",
+      message: "Enhancement provider failure (HTTP 429): The provider rate-limited this request. Your prompt and answers were kept.",
+    })}\n\n`, { headers: { "content-type": "text/event-stream" } })
+  }, undefined, () => root.path, undefined, state)
+  ui.prompt.set({ input: "/enhance fix the backend", parts: [] })
+  await ui.press("\r")
+  await ui.frame("HTTP 429")
+  await ui.frame("rate-limited")
+  expect(ui.requests.map((item) => item.path)).toEqual(["/forge/investigations/stream"])
+  expect(ui.prompt.current.input).toBe("/enhance fix the backend")
+  const editor = ui.app.renderer.currentFocusedEditor
+  expect(editor).toBeInstanceOf(TextareaRenderable)
+  if (!(editor instanceof TextareaRenderable)) throw new Error("Expected preserved investigation input")
+  expect(editor.plainText).toBe("fix the backend")
+  await ui.press("\x14")
+  await ui.frame("Turn 1 | failed")
+  await ui.frame("Provider rate limit; no tool executed.")
+  expect(ui.requests).toHaveLength(1)
+  await ui.press("\x1b")
+  await ui.frame("What should the agent investigate?")
+  await ui.press("\x1b")
+  await wait(() => ui.prompt.focused)
+  expect(ui.requests).toHaveLength(1)
+  expect(ui.prompt.current.input).toBe("/enhance fix the backend")
+})
+
+test("investigation streams public activity by turn and preserves compact review controls", async () => {
+  await using root = await tmpdir()
+  const state = workshop(root.path)
+  const first: Round = {
+    request: crypto.randomUUID(), number: 1, final: false, state: "complete", started: 1, updated: 10,
+    summary: "Parsed two tool requests", note: "Checking queue.ts and its caller before recommending changes.",
+    usage: { ...usage(), input: 80, output: 20, cached: 10, measured: true }, reasoning: 5, bytes: 500,
+    included: [], omitted: [], requested: 2,
+    inspections: [
+      { id: "read", tool: "forge_read_file", input: '{"path":"queue.ts"}', state: "complete",
+        activity: { total: 1, counts: { repository: 1 }, entries: [{ action: "Scan complete", detail: "2 files seen; 2 files read; 2 parse attempts." }] } },
+      { id: "caller", tool: "forge_read_file", input: '{"path":"caller.ts"}', state: "complete" },
+    ],
+  }
+  state.investigation = {
+    ...state.investigation, journal: [first, {
+      ...first, request: crypto.randomUUID(), number: 2, final: true, summary: "Validated one finding",
+      note: "The append implementation needs a duplicate guard.", included: ["read", "caller"], requested: 1,
+      inspections: [{ id: "finish", tool: "forge_finish", input: "Conclusion payload; see the validated review.", state: "complete" }],
+    }],
+    observations: [
+      ...state.investigation.observations.map((item) => ({ ...item, turn: 1 })),
+      { id: "caller", turn: 1, tool: "forge_read_file", input: { path: "caller.ts" }, output: "caller feedback", observed: 2, sources: [] },
+    ],
+  }
+  const done = Promise.withResolvers<void>()
+  using ui = await mount(root.path, true, [], [], async (path) => {
+    if (path !== "/forge/investigations/stream") return undefined
+    return new Response(new ReadableStream({
+      start(controller) {
+        const send = (value: unknown) => controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(value)}\n\n`))
+        send({ type: "progress", stage: "Turn complete", turns: 1, calls: 2, journal: [first], observations: state.investigation.observations })
+        void done.promise.then(() => { send({ type: "result", investigation: state.investigation }); controller.close() })
+      },
+    }), { headers: { "content-type": "text/event-stream" } })
+  }, undefined, () => root.path, undefined, state)
+  ui.app.renderer.resize(100, 45)
+  ui.prompt.set({ input: "/enhance Fix duplicate queue items", parts: [] })
+  await ui.press("\r")
+  await ui.frame("Turn history")
+  await ui.frame("Checking queue.ts and its caller")
+  await ui.frame("2/2 calls complete")
+  expect(ui.app.captureCharFrame()).not.toContain("rawEvidenceCanary")
+  await ui.press("r")
+  await ui.frame("2 parse attempts")
+  await ui.frame("rawEvidenceCanary")
+  expect(ui.requests).toHaveLength(1)
+  state.investigation = { ...state.investigation, id: String(ui.requests.at(0)?.body.key) }
+  done.resolve()
+  await ui.frame("Choose what to include")
+  await ui.press("t")
+  await ui.frame("Turn 2")
+  await ui.frame("Validated one finding")
+  await ui.press("w")
+  expect(ui.requests).toHaveLength(1)
+  await ui.press("\x1b[A")
+  await ui.press("\r")
+  await ui.frame("Checking queue.ts and its caller")
+  ui.app.renderer.resize(80, 24)
+  await ui.frame("Turn history")
+  await ui.frame("Enter/Space expand")
+  await ui.press("\x1b")
+  await ui.frame("Choose what to include")
+  expect(ui.requests.some((item) => item.path.startsWith("/session/"))).toBe(false)
+})
+
+test("expanded turn resources scroll without drawing over the workshop header or controls", async () => {
+  await using root = await tmpdir()
+  const state = workshop(root.path)
+  const item = source("queue.ts", Array.from({ length: 120 }, (_, index) => `export const value${index} = ${index}`).join("\n"), "code")
+  state.investigation = {
+    ...state.investigation,
+    journal: [{
+      request: crypto.randomUUID(), number: 1, final: false, state: "complete", started: 1, updated: 10,
+      summary: "File read completed", note: "Inspect the queue implementation.",
+      included: [], omitted: [], requested: 1,
+      inspections: [{ id: "read", tool: "forge_read_file", input: '{"path":"queue.ts"}', state: "complete" }],
+    }],
+    observations: [{ id: "read", turn: 1, tool: "forge_read_file", input: { path: "queue.ts" }, output: item.text, sources: [item], observed: 1 }],
+  }
+  using ui = await mount(root.path, true, [], [], undefined, undefined, () => root.path, undefined, state)
+  ui.app.renderer.resize(150, 50)
+  ui.prompt.set({ input: "/enhance Fix duplicate queue items", parts: [] })
+  await ui.press("\r")
+  await ui.frame("Choose what to include")
+  await ui.press("t")
+  await ui.press("r")
+  await ui.frame("export const value0")
+  expect(ui.app.captureCharFrame().split("\n").find((line) => line.includes("forge_read_file"))).not.toContain("\u2502")
+  await ui.press("\x1b[6~")
+  const frame = ui.app.captureCharFrame()
+  expect(frame).toContain("Forge /enhance: Prepare your prompt")
+  expect(frame).toContain("Turn history | test/test")
+  expect(frame).toContain("Public updates and recorded evidence")
+  expect(frame).toContain("Up/Down turns | Enter/Space expand")
+  expect(frame).not.toContain("export const value0")
+  expect(ui.requests).toHaveLength(1)
+})
+
+test("older investigations show resources without inventing turn boundaries", async () => {
+  await using root = await tmpdir()
+  const state = workshop(root.path)
+  using ui = await mount(root.path, true, [], [], undefined, undefined, () => root.path, undefined, state)
+  ui.prompt.set({ input: "/enhance Fix duplicate queue items", parts: [] })
+  await ui.press("\r")
+  await ui.frame("Choose what to include")
+  await ui.press("t")
+  await ui.frame("turn boundaries were not recorded")
+  await ui.frame("queue.ts:1")
+  expect(ui.app.captureCharFrame()).not.toContain("Turn 1")
+  await ui.press("\x1b")
+  await ui.frame("Choose what to include")
+  expect(ui.requests).toHaveLength(1)
+})
+
+test("stale investigative evidence blocks composer submission and preserves the draft", async () => {
+  await using root = await tmpdir()
+  const state = workshop(root.path)
+  using ui = await mount(root.path, true, [], [], undefined, undefined, () => root.path, undefined, state)
+  ui.prompt.set({ input: "/enhance Fix duplicate queue items", parts: [] })
+  await ui.press("\r")
+  await ui.frame("Guard duplicate queue identifiers")
+  await ui.press(" ")
+  await ui.press("w")
+  await ui.frame("[a] Use prompt")
+  await ui.press("a")
+  await wait(() => ui.prompt.focused)
+  const before = structuredClone(unwrap(ui.prompt.current))
+  state.stale = true
+  await ui.press("\r")
+  await wait(() => ui.toast.currentToast?.title === "Prepared prompt not sent")
+  expect(ui.prompt.current).toEqual(before)
+  expect(ui.requests.some((item) => item.path.startsWith("/session/"))).toBe(false)
 })
