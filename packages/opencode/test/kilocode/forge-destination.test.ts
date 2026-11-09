@@ -7,6 +7,7 @@ import { Env } from "@/env"
 import { Plugin } from "@/plugin"
 import { describe, destination } from "@/kilocode/forge/destination"
 import { testEffect } from "../lib/effect"
+import { oauth } from "./fixture/forge-oauth"
 
 test("routing fingerprints bind endpoints, model routes, SDKs, and non-secret headers", () => {
   const base = { options: { baseURL: "https://first.example/v1", apiKey: "secret-one" }, models: { small: { api: { url: "https://small.example/v1", npm: "sdk-a" }, headers: { "X-Organization": "one", Authorization: "Bearer secret" } } } }
@@ -25,6 +26,18 @@ test("routing fingerprints bind endpoints, model routes, SDKs, and non-secret he
   expect(describe({ baseURL: "https://user:secret@first.example/v1?api_key=secret" })).toEqual(describe({ baseURL: "https://first.example/v1" }))
   expect(describe({ baseURL: "https://${HOST}/v1" }, { HOST: "first.example" })).toEqual(describe({ baseURL: "https://first.example/v1" }))
   expect(() => describe({ fetch: () => fetch("https://custom.example") })).toThrow("routing functions")
+})
+
+test("the built-in OAuth route is fingerprinted without rejecting its auth adapter", async () => {
+  const first = await oauth("https://chatgpt.com/backend-api/codex/responses")
+  const second = await oauth("https://chatgpt.com/backend-api/codex/responses")
+  const changed = await oauth("https://other.example/responses")
+  const before = describe(first.options)
+  expect(before.origins).toEqual(["https://chatgpt.com"])
+  expect(describe(second.options)).toEqual(before)
+  expect(describe(changed.options).fingerprint).not.toBe(before.fingerprint)
+  expect(JSON.stringify(before)).not.toContain("fixture-access")
+  expect(() => describe({ ...first.options, fetch: () => fetch("https://other.example") })).toThrow("routing functions")
 })
 
 const it = testEffect(LayerNode.compile(LayerNode.group([Provider.node, Config.node, Env.node, Plugin.node])))

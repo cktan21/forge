@@ -1,4 +1,5 @@
 import * as ForgeTrace from "@/kilocode/forge/trace" // kilocode_change
+import * as ForgeHandoff from "@/kilocode/forge/handoff" // kilocode_change
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { llmClient } from "@opencode-ai/core/effect/app-node-platform"
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
@@ -99,6 +100,7 @@ const live: Layer.Layer<
     const flags = yield* RuntimeFlags.Service
 
     const run = Effect.fn("LLM.run")(function* (input: StreamRequest) {
+      const forge = yield* ForgeHandoff.context(input.sessionID, { providerID: input.model.providerID, modelID: input.model.id }) // kilocode_change
       const l = log.clone().tag("providerID", input.model.providerID).tag("modelID", input.model.id) // kilocode_change
       yield* Effect.logInfo("stream", {
         providerID: input.model.providerID,
@@ -306,7 +308,7 @@ const live: Layer.Layer<
       }
       // kilocode_change end
 
-      const capture = yield* Effect.promise(() => ForgeTrace.start({ root: instance.directory, session: input.sessionID, model: `${input.model.providerID}/${input.model.id}`, purpose: input.agent.name === "compaction" ? "compaction" : "coding", system: prepared.system, messages: prepared.messages, tools: prepared.tools, options: prepared.params.options })) // kilocode_change
+      const capture = yield* Effect.promise(() => ForgeTrace.start({ root: instance.directory, session: input.sessionID, model: `${input.model.providerID}/${input.model.id}`, purpose: input.agent.name === "compaction" ? "compaction" : "coding", system: prepared.system, messages: prepared.messages, tools: prepared.tools, options: prepared.params.options, ...forge })) // kilocode_change
 
       // Runtime seam: native is an opt-in adapter over @opencode-ai/llm. It
       // either returns a ready LLMEvent stream or a concrete fallback reason.

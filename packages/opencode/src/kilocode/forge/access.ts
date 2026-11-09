@@ -41,3 +41,39 @@ export function authorize(item: Collection, session: string, providers: readonly
     }
   })
 }
+
+export function permit(input: { tool: string; pattern: string; session: string; signal?: AbortSignal }) {
+  return Effect.gen(function* () {
+    input.signal?.throwIfAborted()
+    const config = yield* Config.Service
+    const cfg = yield* config.get()
+    const agents = yield* Agent.Service
+    const sessions = yield* Session.Service
+    const key = input.session ? SessionID.make(input.session) : undefined
+    const info = key ? yield* sessions.get(key) : undefined
+    const messages = key ? yield* sessions.messages({ sessionID: key, limit: 20 }) : []
+    const user = messages.findLast((item) => item.info.role === "user")?.info
+    const agent = yield* agents.get(user?.role === "user" ? user.agent : yield* agents.defaultAgent())
+    if (!agent) throw new Error("An available agent is required for investigation permissions")
+    const rules = Permission.merge(agent.permission, Permission.fromConfig(cfg.permission ?? {}), info?.permission ?? [])
+    if (rules.some((rule) => rule.action === "deny" && Permission.evaluate(input.tool, input.pattern, [rule]).action === "deny")) {
+      throw new Error(`Kilo permission denies ${input.tool} during investigation`)
+    }
+    if (!key) {
+      if (Permission.evaluate(input.tool, input.pattern, rules).action !== "allow") throw new Error("Open a chat to approve this investigation capability")
+      return
+    }
+    const permissions = yield* Permission.Service
+    yield* permissions.ask({
+      sessionID: key, permission: input.tool, patterns: [input.pattern], always: [],
+      metadata: { purpose: "read-only investigation" }, ruleset: rules, hardRuleset: rules,
+    }).pipe(Effect.asVoid, Effect.orDie)
+  }).pipe(
+    Effect.raceFirst(Effect.callback<never>((resume) => {
+      const abort = () => resume(Effect.interrupt)
+      if (input.signal?.aborted) abort()
+      input.signal?.addEventListener("abort", abort, { once: true })
+      return Effect.sync(() => input.signal?.removeEventListener("abort", abort))
+    })),
+  )
+}

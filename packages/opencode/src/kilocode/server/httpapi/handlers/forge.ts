@@ -14,6 +14,7 @@ import { SessionID } from "@/session/schema"
 import { InstanceState } from "@/effect/instance-state"
 import { realpath } from "node:fs/promises"
 import { EnhancementError } from "@kilocode/forge/enhancement"
+import { InvestigationInput, type InvestigationFrame } from "@kilocode/forge/investigation"
 
 export const forgeHandlers = HttpApiBuilder.group(InstanceHttpApi, "forge", (handlers) => Effect.gen(function* () {
   const forge = yield* Forge.Service
@@ -112,6 +113,47 @@ export const forgeHandlers = HttpApiBuilder.group(InstanceHttpApi, "forge", (han
     .handle("opportunities", () => run((engine) => engine.opportunities()))
     .handle("decide", ({ params, payload }) => run((engine) => engine.decide(params.id, payload.status)))
     .handle("enhance", ({ payload }) => run((engine, signal) => engine.enhance({ ...payload, signal }), payload.session))
+    .handle("investigationStatus", ({ query }) => run((engine) => engine.investigationStatus(), query.session))
+    .handle("investigate", ({ payload }) => run((engine, signal) => engine.investigate({ ...payload, signal }), payload.session))
+    .handle("investigation", ({ params, query }) => run((engine, signal) => engine.investigation(params.id, query.session, signal), query.session))
+    .handle("chooseDirection", ({ payload }) => run((engine, signal) => engine.chooseDirection(payload, signal), payload.session))
+    .handle("writePrompt", ({ payload }) => run((engine, signal) => engine.writePrompt(payload, signal), payload.session))
+    .handle("editPrompt", ({ payload }) => run((engine, signal) => engine.editPrompt(payload, signal), payload.session))
+    .handle("preparedPrompt", ({ params, query }) => run((engine, signal) => engine.preparedPrompt(params.id, query.session, signal), query.session))
+    .handle("bindPrompt", ({ payload }) => run((engine, signal) => engine.bindPrompt(payload, signal), payload.session))
+    .handleRaw("investigateStream", ({ request }) => Effect.gen(function* () {
+      const payload = yield* request.json.pipe(
+        Effect.flatMap(Schema.decodeUnknownEffect(InvestigationInput)),
+        Effect.mapError(() => new ForgeError({ message: "Invalid investigation input" })),
+      )
+      const engine = yield* run(async (engine) => engine, payload.session)
+      const output = Stream.unwrap(Effect.gen(function* () {
+        const queue = yield* Queue.sliding<InvestigationFrame>(16)
+        yield* Effect.tryPromise({
+          try: (signal) => engine.investigate({ ...payload, signal, update: (value) => { Queue.offerUnsafe(queue, value) } }),
+          catch: (err) => err,
+        }).pipe(
+          Effect.match({
+            onFailure: (err) => Queue.offerUnsafe(queue, {
+              type: "error",
+              message: err instanceof EnhancementError ? err.message
+                : "Investigation could not complete. Your input is preserved; inspect permissions, model support and source freshness before retrying.",
+            }),
+            onSuccess: (investigation) => Queue.offerUnsafe(queue, { type: "result", investigation }),
+          }),
+          Effect.forkScoped,
+        )
+        return Stream.fromQueue(queue).pipe(Stream.takeUntil((frame) => frame.type !== "progress"))
+      }))
+      return HttpServerResponse.stream(output.pipe(
+        Stream.map((frame): Sse.Event => ({ _tag: "Event", event: "message", id: undefined, data: JSON.stringify(frame) })),
+        Stream.pipeThroughChannel(Sse.encode()),
+        Stream.encodeText,
+      ), {
+        contentType: "text/event-stream",
+        headers: { "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no", "X-Content-Type-Options": "nosniff" },
+      })
+    }))
     .handleRaw("enhanceStream", ({ request }) => Effect.gen(function* () {
       const payload = yield* request.json.pipe(
         Effect.flatMap(Schema.decodeUnknownEffect(ForgeInput)),

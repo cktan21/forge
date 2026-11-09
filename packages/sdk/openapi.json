@@ -19944,6 +19944,4868 @@
         ]
       }
     },
+    "/forge/investigations/status": {
+      "get": {
+        "tags": ["forge"],
+        "operationId": "forge.investigationStatus",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "session",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["enabled"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "ForgeError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForgeError"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Inspect whether read-only investigative enhancement is enabled",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createKiloClient } from \"@kilocode/sdk\"\n\nconst client = createKiloClient()\nawait client.forge.investigationStatus({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/forge/investigations": {
+      "post": {
+        "tags": ["forge"],
+        "operationId": "forge.investigate",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "version": {
+                      "type": "number",
+                      "enum": [1]
+                    },
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9-]{36}$"
+                    },
+                    "revision": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9-]{36}$"
+                    },
+                    "digest": {
+                      "type": "string"
+                    },
+                    "root": {
+                      "type": "string"
+                    },
+                    "session": {
+                      "type": "string"
+                    },
+                    "original": {
+                      "type": "string"
+                    },
+                    "answers": {
+                      "type": "string"
+                    },
+                    "feedback": {
+                      "type": "string"
+                    },
+                    "previous": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "pattern": "^[a-f0-9-]{36}$"
+                        },
+                        "revision": {
+                          "type": "string",
+                          "pattern": "^[a-f0-9-]{36}$"
+                        },
+                        "session": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["id", "revision"],
+                      "additionalProperties": false
+                    },
+                    "edits": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "before": {
+                            "type": "string",
+                            "maxLength": 100000
+                          },
+                          "after": {
+                            "type": "string",
+                            "maxLength": 100000
+                          }
+                        },
+                        "required": ["before", "after"],
+                        "additionalProperties": false
+                      },
+                      "maxItems": 100
+                    },
+                    "dependencies": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "agent",
+                              "directory",
+                              "code",
+                              "symbol",
+                              "test",
+                              "document",
+                              "dependency",
+                              "schema",
+                              "configuration",
+                              "instruction",
+                              "goal",
+                              "memory",
+                              "history",
+                              "tool",
+                              "attachment",
+                              "summary",
+                              "opportunity"
+                            ]
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "uri": {
+                            "type": "string"
+                          },
+                          "hash": {
+                            "type": "string"
+                          },
+                          "text": {
+                            "type": "string"
+                          },
+                          "start": {
+                            "type": "number"
+                          },
+                          "end": {
+                            "type": "number"
+                          },
+                          "observed": {
+                            "type": "number"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": ["current", "stale", "unavailable"]
+                          },
+                          "inferred": {
+                            "type": "boolean"
+                          },
+                          "evidence": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "detail": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "kind",
+                          "label",
+                          "uri",
+                          "hash",
+                          "text",
+                          "start",
+                          "end",
+                          "observed",
+                          "method",
+                          "status",
+                          "inferred",
+                          "evidence",
+                          "detail"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "model": {
+                      "type": "object",
+                      "properties": {
+                        "providerID": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "modelID": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256
+                        }
+                      },
+                      "required": ["providerID", "modelID"],
+                      "additionalProperties": false
+                    },
+                    "destination": {
+                      "type": "string"
+                    },
+                    "policy": {
+                      "type": "string"
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "investigating",
+                        "findings_ready",
+                        "needs_input",
+                        "limited",
+                        "failed",
+                        "cancelled",
+                        "interrupted"
+                      ]
+                    },
+                    "intent": {
+                      "type": "string"
+                    },
+                    "summary": {
+                      "type": "string"
+                    },
+                    "findings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "title": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": ["defect", "improvement", "feature", "diagnostic"]
+                          },
+                          "support": {
+                            "type": "string",
+                            "enum": ["observed", "inferred", "unresolved", "contradicted"]
+                          },
+                          "explanation": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "benefit": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "evidence": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "pattern": "^[a-f0-9]{24}$"
+                            },
+                            "maxItems": 24
+                          },
+                          "counterevidence": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "pattern": "^[a-f0-9]{24}$"
+                            },
+                            "maxItems": 24
+                          },
+                          "unknowns": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "pattern": "\\S",
+                              "maxLength": 4000
+                            },
+                            "maxItems": 12
+                          },
+                          "action": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "verification": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "pattern": "\\S",
+                              "maxLength": 4000
+                            },
+                            "maxItems": 12
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "title",
+                          "kind",
+                          "support",
+                          "explanation",
+                          "benefit",
+                          "evidence",
+                          "counterevidence",
+                          "unknowns",
+                          "action",
+                          "verification"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "maxItems": 5
+                    },
+                    "questions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "question": {
+                            "type": "string"
+                          },
+                          "impact": {
+                            "type": "string"
+                          },
+                          "options": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "optional": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": ["id", "question", "impact", "options", "optional"],
+                        "additionalProperties": false
+                      },
+                      "maxItems": 3
+                    },
+                    "limitations": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "observations": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "turn": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "tool": {
+                            "type": "string",
+                            "enum": [
+                              "forge_search_code",
+                              "forge_search_docs",
+                              "forge_lookup",
+                              "forge_read_file",
+                              "forge_get_symbol",
+                              "forge_relationships",
+                              "forge_finish"
+                            ]
+                          },
+                          "input": {},
+                          "output": {
+                            "type": "string"
+                          },
+                          "sources": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string"
+                                },
+                                "kind": {
+                                  "type": "string",
+                                  "enum": [
+                                    "agent",
+                                    "directory",
+                                    "code",
+                                    "symbol",
+                                    "test",
+                                    "document",
+                                    "dependency",
+                                    "schema",
+                                    "configuration",
+                                    "instruction",
+                                    "goal",
+                                    "memory",
+                                    "history",
+                                    "tool",
+                                    "attachment",
+                                    "summary",
+                                    "opportunity"
+                                  ]
+                                },
+                                "label": {
+                                  "type": "string"
+                                },
+                                "uri": {
+                                  "type": "string"
+                                },
+                                "hash": {
+                                  "type": "string"
+                                },
+                                "text": {
+                                  "type": "string"
+                                },
+                                "start": {
+                                  "type": "number"
+                                },
+                                "end": {
+                                  "type": "number"
+                                },
+                                "observed": {
+                                  "type": "number"
+                                },
+                                "method": {
+                                  "type": "string"
+                                },
+                                "status": {
+                                  "type": "string",
+                                  "enum": ["current", "stale", "unavailable"]
+                                },
+                                "inferred": {
+                                  "type": "boolean"
+                                },
+                                "evidence": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                "detail": {
+                                  "type": "object",
+                                  "additionalProperties": {
+                                    "type": "string"
+                                  }
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "kind",
+                                "label",
+                                "uri",
+                                "hash",
+                                "text",
+                                "start",
+                                "end",
+                                "observed",
+                                "method",
+                                "status",
+                                "inferred",
+                                "evidence",
+                                "detail"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "maxItems": 100
+                          },
+                          "observed": {
+                            "type": "integer",
+                            "minimum": 0
+                          }
+                        },
+                        "required": ["id", "tool", "input", "output", "sources", "observed"],
+                        "additionalProperties": false
+                      },
+                      "maxItems": 24
+                    },
+                    "journal": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "request": {
+                            "type": "string",
+                            "pattern": "^[a-f0-9-]{36}$"
+                          },
+                          "number": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "final": {
+                            "type": "boolean"
+                          },
+                          "state": {
+                            "type": "string",
+                            "enum": ["model", "tools", "complete", "limited", "failed", "cancelled"]
+                          },
+                          "started": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "updated": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "summary": {
+                            "type": "string"
+                          },
+                          "note": {
+                            "type": "string",
+                            "maxLength": 2000
+                          },
+                          "usage": {
+                            "type": "object",
+                            "properties": {
+                              "input": {
+                                "type": "number"
+                              },
+                              "output": {
+                                "type": "number"
+                              },
+                              "cached": {
+                                "type": "number"
+                              },
+                              "milliseconds": {
+                                "type": "number"
+                              },
+                              "model": {
+                                "type": "string"
+                              },
+                              "measured": {
+                                "type": "boolean"
+                              }
+                            },
+                            "required": ["input", "output", "cached", "milliseconds", "model", "measured"],
+                            "additionalProperties": false
+                          },
+                          "reasoning": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "bytes": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "included": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            },
+                            "maxItems": 24
+                          },
+                          "omitted": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            },
+                            "maxItems": 24
+                          },
+                          "requested": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "inspections": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string"
+                                },
+                                "tool": {
+                                  "type": "string"
+                                },
+                                "input": {
+                                  "type": "string",
+                                  "maxLength": 1000
+                                },
+                                "state": {
+                                  "type": "string",
+                                  "enum": ["requested", "running", "complete", "skipped", "discarded", "failed"]
+                                },
+                                "activity": {
+                                  "type": "object",
+                                  "properties": {
+                                    "entries": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "object",
+                                        "properties": {
+                                          "action": {
+                                            "type": "string"
+                                          },
+                                          "path": {
+                                            "type": "string"
+                                          },
+                                          "detail": {
+                                            "type": "string"
+                                          }
+                                        },
+                                        "required": ["action", "detail"],
+                                        "additionalProperties": false
+                                      },
+                                      "maxItems": 100
+                                    },
+                                    "counts": {
+                                      "type": "object",
+                                      "additionalProperties": {
+                                        "type": "integer",
+                                        "minimum": 0
+                                      }
+                                    },
+                                    "total": {
+                                      "type": "integer",
+                                      "minimum": 0
+                                    }
+                                  },
+                                  "required": ["entries", "total"],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "required": ["id", "tool", "input", "state"],
+                              "additionalProperties": false
+                            },
+                            "maxItems": 24
+                          }
+                        },
+                        "required": [
+                          "request",
+                          "number",
+                          "final",
+                          "state",
+                          "started",
+                          "updated",
+                          "summary",
+                          "included",
+                          "omitted",
+                          "requested",
+                          "inspections"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "maxItems": 12
+                    },
+                    "turns": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "calls": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "bytes": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "started": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "updated": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "usage": {
+                      "type": "object",
+                      "properties": {
+                        "input": {
+                          "type": "number"
+                        },
+                        "output": {
+                          "type": "number"
+                        },
+                        "cached": {
+                          "type": "number"
+                        },
+                        "milliseconds": {
+                          "type": "number"
+                        },
+                        "model": {
+                          "type": "string"
+                        },
+                        "measured": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": ["input", "output", "cached", "milliseconds", "model", "measured"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "id",
+                    "revision",
+                    "digest",
+                    "root",
+                    "session",
+                    "original",
+                    "answers",
+                    "feedback",
+                    "model",
+                    "destination",
+                    "policy",
+                    "state",
+                    "intent",
+                    "summary",
+                    "findings",
+                    "questions",
+                    "limitations",
+                    "observations",
+                    "turns",
+                    "calls",
+                    "bytes",
+                    "started",
+                    "updated",
+                    "usage"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "ForgeError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForgeError"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Investigate a request using bounded read-only tools before writing a prompt",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9-]{36}$"
+                  },
+                  "text": {
+                    "type": "string",
+                    "pattern": "\\S",
+                    "maxLength": 30000
+                  },
+                  "session": {
+                    "type": "string"
+                  },
+                  "model": {
+                    "type": "object",
+                    "properties": {
+                      "providerID": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "modelID": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256
+                      }
+                    },
+                    "required": ["providerID", "modelID"],
+                    "additionalProperties": false
+                  },
+                  "answers": {
+                    "type": "string",
+                    "maxLength": 30000
+                  },
+                  "feedback": {
+                    "type": "string",
+                    "maxLength": 30000
+                  },
+                  "previous": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9-]{36}$"
+                      },
+                      "revision": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9-]{36}$"
+                      },
+                      "session": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["id", "revision"],
+                    "additionalProperties": false
+                  }
+                },
+                "required": ["key", "text"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createKiloClient } from \"@kilocode/sdk\"\n\nconst client = createKiloClient()\nawait client.forge.investigate({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/forge/investigations/stream": {
+      "post": {
+        "tags": ["forge"],
+        "operationId": "forge.investigateStream",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "ForgeError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForgeError"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Stream scoped investigation progress and validated findings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9-]{36}$"
+                  },
+                  "text": {
+                    "type": "string",
+                    "pattern": "\\S",
+                    "maxLength": 30000
+                  },
+                  "session": {
+                    "type": "string"
+                  },
+                  "model": {
+                    "type": "object",
+                    "properties": {
+                      "providerID": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "modelID": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256
+                      }
+                    },
+                    "required": ["providerID", "modelID"],
+                    "additionalProperties": false
+                  },
+                  "answers": {
+                    "type": "string",
+                    "maxLength": 30000
+                  },
+                  "feedback": {
+                    "type": "string",
+                    "maxLength": 30000
+                  },
+                  "previous": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9-]{36}$"
+                      },
+                      "revision": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9-]{36}$"
+                      },
+                      "session": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["id", "revision"],
+                    "additionalProperties": false
+                  }
+                },
+                "required": ["key", "text"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createKiloClient } from \"@kilocode/sdk\"\n\nconst client = createKiloClient()\nawait client.forge.investigateStream({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/forge/investigations/{id}": {
+      "get": {
+        "tags": ["forge"],
+        "operationId": "forge.investigation",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-f0-9-]{36}$"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "session",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "version": {
+                      "type": "number",
+                      "enum": [1]
+                    },
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9-]{36}$"
+                    },
+                    "revision": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9-]{36}$"
+                    },
+                    "digest": {
+                      "type": "string"
+                    },
+                    "root": {
+                      "type": "string"
+                    },
+                    "session": {
+                      "type": "string"
+                    },
+                    "original": {
+                      "type": "string"
+                    },
+                    "answers": {
+                      "type": "string"
+                    },
+                    "feedback": {
+                      "type": "string"
+                    },
+                    "previous": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "pattern": "^[a-f0-9-]{36}$"
+                        },
+                        "revision": {
+                          "type": "string",
+                          "pattern": "^[a-f0-9-]{36}$"
+                        },
+                        "session": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["id", "revision"],
+                      "additionalProperties": false
+                    },
+                    "edits": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "before": {
+                            "type": "string",
+                            "maxLength": 100000
+                          },
+                          "after": {
+                            "type": "string",
+                            "maxLength": 100000
+                          }
+                        },
+                        "required": ["before", "after"],
+                        "additionalProperties": false
+                      },
+                      "maxItems": 100
+                    },
+                    "dependencies": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "agent",
+                              "directory",
+                              "code",
+                              "symbol",
+                              "test",
+                              "document",
+                              "dependency",
+                              "schema",
+                              "configuration",
+                              "instruction",
+                              "goal",
+                              "memory",
+                              "history",
+                              "tool",
+                              "attachment",
+                              "summary",
+                              "opportunity"
+                            ]
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "uri": {
+                            "type": "string"
+                          },
+                          "hash": {
+                            "type": "string"
+                          },
+                          "text": {
+                            "type": "string"
+                          },
+                          "start": {
+                            "type": "number"
+                          },
+                          "end": {
+                            "type": "number"
+                          },
+                          "observed": {
+                            "type": "number"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": ["current", "stale", "unavailable"]
+                          },
+                          "inferred": {
+                            "type": "boolean"
+                          },
+                          "evidence": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "detail": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "kind",
+                          "label",
+                          "uri",
+                          "hash",
+                          "text",
+                          "start",
+                          "end",
+                          "observed",
+                          "method",
+                          "status",
+                          "inferred",
+                          "evidence",
+                          "detail"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "model": {
+                      "type": "object",
+                      "properties": {
+                        "providerID": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "modelID": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256
+                        }
+                      },
+                      "required": ["providerID", "modelID"],
+                      "additionalProperties": false
+                    },
+                    "destination": {
+                      "type": "string"
+                    },
+                    "policy": {
+                      "type": "string"
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "investigating",
+                        "findings_ready",
+                        "needs_input",
+                        "limited",
+                        "failed",
+                        "cancelled",
+                        "interrupted"
+                      ]
+                    },
+                    "intent": {
+                      "type": "string"
+                    },
+                    "summary": {
+                      "type": "string"
+                    },
+                    "findings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "title": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": ["defect", "improvement", "feature", "diagnostic"]
+                          },
+                          "support": {
+                            "type": "string",
+                            "enum": ["observed", "inferred", "unresolved", "contradicted"]
+                          },
+                          "explanation": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "benefit": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "evidence": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "pattern": "^[a-f0-9]{24}$"
+                            },
+                            "maxItems": 24
+                          },
+                          "counterevidence": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "pattern": "^[a-f0-9]{24}$"
+                            },
+                            "maxItems": 24
+                          },
+                          "unknowns": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "pattern": "\\S",
+                              "maxLength": 4000
+                            },
+                            "maxItems": 12
+                          },
+                          "action": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "verification": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "pattern": "\\S",
+                              "maxLength": 4000
+                            },
+                            "maxItems": 12
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "title",
+                          "kind",
+                          "support",
+                          "explanation",
+                          "benefit",
+                          "evidence",
+                          "counterevidence",
+                          "unknowns",
+                          "action",
+                          "verification"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "maxItems": 5
+                    },
+                    "questions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "question": {
+                            "type": "string"
+                          },
+                          "impact": {
+                            "type": "string"
+                          },
+                          "options": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "optional": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": ["id", "question", "impact", "options", "optional"],
+                        "additionalProperties": false
+                      },
+                      "maxItems": 3
+                    },
+                    "limitations": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "observations": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "turn": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "tool": {
+                            "type": "string",
+                            "enum": [
+                              "forge_search_code",
+                              "forge_search_docs",
+                              "forge_lookup",
+                              "forge_read_file",
+                              "forge_get_symbol",
+                              "forge_relationships",
+                              "forge_finish"
+                            ]
+                          },
+                          "input": {},
+                          "output": {
+                            "type": "string"
+                          },
+                          "sources": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string"
+                                },
+                                "kind": {
+                                  "type": "string",
+                                  "enum": [
+                                    "agent",
+                                    "directory",
+                                    "code",
+                                    "symbol",
+                                    "test",
+                                    "document",
+                                    "dependency",
+                                    "schema",
+                                    "configuration",
+                                    "instruction",
+                                    "goal",
+                                    "memory",
+                                    "history",
+                                    "tool",
+                                    "attachment",
+                                    "summary",
+                                    "opportunity"
+                                  ]
+                                },
+                                "label": {
+                                  "type": "string"
+                                },
+                                "uri": {
+                                  "type": "string"
+                                },
+                                "hash": {
+                                  "type": "string"
+                                },
+                                "text": {
+                                  "type": "string"
+                                },
+                                "start": {
+                                  "type": "number"
+                                },
+                                "end": {
+                                  "type": "number"
+                                },
+                                "observed": {
+                                  "type": "number"
+                                },
+                                "method": {
+                                  "type": "string"
+                                },
+                                "status": {
+                                  "type": "string",
+                                  "enum": ["current", "stale", "unavailable"]
+                                },
+                                "inferred": {
+                                  "type": "boolean"
+                                },
+                                "evidence": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                "detail": {
+                                  "type": "object",
+                                  "additionalProperties": {
+                                    "type": "string"
+                                  }
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "kind",
+                                "label",
+                                "uri",
+                                "hash",
+                                "text",
+                                "start",
+                                "end",
+                                "observed",
+                                "method",
+                                "status",
+                                "inferred",
+                                "evidence",
+                                "detail"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "maxItems": 100
+                          },
+                          "observed": {
+                            "type": "integer",
+                            "minimum": 0
+                          }
+                        },
+                        "required": ["id", "tool", "input", "output", "sources", "observed"],
+                        "additionalProperties": false
+                      },
+                      "maxItems": 24
+                    },
+                    "journal": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "request": {
+                            "type": "string",
+                            "pattern": "^[a-f0-9-]{36}$"
+                          },
+                          "number": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "final": {
+                            "type": "boolean"
+                          },
+                          "state": {
+                            "type": "string",
+                            "enum": ["model", "tools", "complete", "limited", "failed", "cancelled"]
+                          },
+                          "started": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "updated": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "summary": {
+                            "type": "string"
+                          },
+                          "note": {
+                            "type": "string",
+                            "maxLength": 2000
+                          },
+                          "usage": {
+                            "type": "object",
+                            "properties": {
+                              "input": {
+                                "type": "number"
+                              },
+                              "output": {
+                                "type": "number"
+                              },
+                              "cached": {
+                                "type": "number"
+                              },
+                              "milliseconds": {
+                                "type": "number"
+                              },
+                              "model": {
+                                "type": "string"
+                              },
+                              "measured": {
+                                "type": "boolean"
+                              }
+                            },
+                            "required": ["input", "output", "cached", "milliseconds", "model", "measured"],
+                            "additionalProperties": false
+                          },
+                          "reasoning": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "bytes": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "included": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            },
+                            "maxItems": 24
+                          },
+                          "omitted": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            },
+                            "maxItems": 24
+                          },
+                          "requested": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "inspections": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string"
+                                },
+                                "tool": {
+                                  "type": "string"
+                                },
+                                "input": {
+                                  "type": "string",
+                                  "maxLength": 1000
+                                },
+                                "state": {
+                                  "type": "string",
+                                  "enum": ["requested", "running", "complete", "skipped", "discarded", "failed"]
+                                },
+                                "activity": {
+                                  "type": "object",
+                                  "properties": {
+                                    "entries": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "object",
+                                        "properties": {
+                                          "action": {
+                                            "type": "string"
+                                          },
+                                          "path": {
+                                            "type": "string"
+                                          },
+                                          "detail": {
+                                            "type": "string"
+                                          }
+                                        },
+                                        "required": ["action", "detail"],
+                                        "additionalProperties": false
+                                      },
+                                      "maxItems": 100
+                                    },
+                                    "counts": {
+                                      "type": "object",
+                                      "additionalProperties": {
+                                        "type": "integer",
+                                        "minimum": 0
+                                      }
+                                    },
+                                    "total": {
+                                      "type": "integer",
+                                      "minimum": 0
+                                    }
+                                  },
+                                  "required": ["entries", "total"],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "required": ["id", "tool", "input", "state"],
+                              "additionalProperties": false
+                            },
+                            "maxItems": 24
+                          }
+                        },
+                        "required": [
+                          "request",
+                          "number",
+                          "final",
+                          "state",
+                          "started",
+                          "updated",
+                          "summary",
+                          "included",
+                          "omitted",
+                          "requested",
+                          "inspections"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "maxItems": 12
+                    },
+                    "turns": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "calls": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "bytes": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "started": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "updated": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "usage": {
+                      "type": "object",
+                      "properties": {
+                        "input": {
+                          "type": "number"
+                        },
+                        "output": {
+                          "type": "number"
+                        },
+                        "cached": {
+                          "type": "number"
+                        },
+                        "milliseconds": {
+                          "type": "number"
+                        },
+                        "model": {
+                          "type": "string"
+                        },
+                        "measured": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": ["input", "output", "cached", "milliseconds", "model", "measured"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "id",
+                    "revision",
+                    "digest",
+                    "root",
+                    "session",
+                    "original",
+                    "answers",
+                    "feedback",
+                    "model",
+                    "destination",
+                    "policy",
+                    "state",
+                    "intent",
+                    "summary",
+                    "findings",
+                    "questions",
+                    "limitations",
+                    "observations",
+                    "turns",
+                    "calls",
+                    "bytes",
+                    "started",
+                    "updated",
+                    "usage"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "ForgeError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForgeError"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Read a retained investigation after revalidating its evidence and permissions",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createKiloClient } from \"@kilocode/sdk\"\n\nconst client = createKiloClient()\nawait client.forge.investigation({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/forge/preparations": {
+      "post": {
+        "tags": ["forge"],
+        "operationId": "forge.chooseDirection",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "version": {
+                      "type": "number",
+                      "enum": [1]
+                    },
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9-]{36}$"
+                    },
+                    "revision": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9-]{36}$"
+                    },
+                    "root": {
+                      "type": "string"
+                    },
+                    "session": {
+                      "type": "string"
+                    },
+                    "scope": {
+                      "type": "string"
+                    },
+                    "investigation": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9-]{36}$"
+                    },
+                    "parent": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9-]{36}$"
+                    },
+                    "digest": {
+                      "type": "string"
+                    },
+                    "requirements": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "text": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["id", "label", "text"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "edits": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "before": {
+                            "type": "string",
+                            "maxLength": 100000
+                          },
+                          "after": {
+                            "type": "string",
+                            "maxLength": 100000
+                          }
+                        },
+                        "required": ["before", "after"],
+                        "additionalProperties": false
+                      },
+                      "maxItems": 100
+                    },
+                    "findings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "title": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": ["defect", "improvement", "feature", "diagnostic"]
+                          },
+                          "support": {
+                            "type": "string",
+                            "enum": ["observed", "inferred", "unresolved", "contradicted"]
+                          },
+                          "explanation": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "benefit": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "evidence": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "pattern": "^[a-f0-9]{24}$"
+                            },
+                            "maxItems": 24
+                          },
+                          "counterevidence": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "pattern": "^[a-f0-9]{24}$"
+                            },
+                            "maxItems": 24
+                          },
+                          "unknowns": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "pattern": "\\S",
+                              "maxLength": 4000
+                            },
+                            "maxItems": 12
+                          },
+                          "action": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "verification": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "pattern": "\\S",
+                              "maxLength": 4000
+                            },
+                            "maxItems": 12
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "title",
+                          "kind",
+                          "support",
+                          "explanation",
+                          "benefit",
+                          "evidence",
+                          "counterevidence",
+                          "unknowns",
+                          "action",
+                          "verification"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "sources": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "agent",
+                              "directory",
+                              "code",
+                              "symbol",
+                              "test",
+                              "document",
+                              "dependency",
+                              "schema",
+                              "configuration",
+                              "instruction",
+                              "goal",
+                              "memory",
+                              "history",
+                              "tool",
+                              "attachment",
+                              "summary",
+                              "opportunity"
+                            ]
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "uri": {
+                            "type": "string"
+                          },
+                          "hash": {
+                            "type": "string"
+                          },
+                          "text": {
+                            "type": "string"
+                          },
+                          "start": {
+                            "type": "number"
+                          },
+                          "end": {
+                            "type": "number"
+                          },
+                          "observed": {
+                            "type": "number"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": ["current", "stale", "unavailable"]
+                          },
+                          "inferred": {
+                            "type": "boolean"
+                          },
+                          "evidence": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "detail": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "kind",
+                          "label",
+                          "uri",
+                          "hash",
+                          "text",
+                          "start",
+                          "end",
+                          "observed",
+                          "method",
+                          "status",
+                          "inferred",
+                          "evidence",
+                          "detail"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "dependencies": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "agent",
+                              "directory",
+                              "code",
+                              "symbol",
+                              "test",
+                              "document",
+                              "dependency",
+                              "schema",
+                              "configuration",
+                              "instruction",
+                              "goal",
+                              "memory",
+                              "history",
+                              "tool",
+                              "attachment",
+                              "summary",
+                              "opportunity"
+                            ]
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "uri": {
+                            "type": "string"
+                          },
+                          "hash": {
+                            "type": "string"
+                          },
+                          "text": {
+                            "type": "string"
+                          },
+                          "start": {
+                            "type": "number"
+                          },
+                          "end": {
+                            "type": "number"
+                          },
+                          "observed": {
+                            "type": "number"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": ["current", "stale", "unavailable"]
+                          },
+                          "inferred": {
+                            "type": "boolean"
+                          },
+                          "evidence": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "detail": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "kind",
+                          "label",
+                          "uri",
+                          "hash",
+                          "text",
+                          "start",
+                          "end",
+                          "observed",
+                          "method",
+                          "status",
+                          "inferred",
+                          "evidence",
+                          "detail"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "model": {
+                      "type": "object",
+                      "properties": {
+                        "providerID": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "modelID": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256
+                        }
+                      },
+                      "required": ["providerID", "modelID"],
+                      "additionalProperties": false
+                    },
+                    "destination": {
+                      "type": "string"
+                    },
+                    "policy": {
+                      "type": "string"
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": ["selected", "writing", "ready", "failed", "cancelled", "interrupted"]
+                    },
+                    "attempt": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9-]{36}$"
+                    },
+                    "origin": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9-]{36}$"
+                    },
+                    "prompt": {
+                      "type": "string"
+                    },
+                    "hash": {
+                      "type": "string"
+                    },
+                    "task": {
+                      "type": "object",
+                      "properties": {
+                        "objective": {
+                          "type": "string",
+                          "pattern": "\\S",
+                          "maxLength": 4000
+                        },
+                        "basis": {
+                          "type": "string",
+                          "pattern": "\\S",
+                          "maxLength": 4000
+                        },
+                        "changes": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "maxItems": 12
+                        },
+                        "constraints": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "maxItems": 12
+                        },
+                        "verification": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "maxItems": 12
+                        },
+                        "evidence": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "maxItems": 100
+                        },
+                        "requirements": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "maxItems": 100
+                        }
+                      },
+                      "required": [
+                        "objective",
+                        "basis",
+                        "changes",
+                        "constraints",
+                        "verification",
+                        "evidence",
+                        "requirements"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "started": {
+                      "type": "number"
+                    },
+                    "updated": {
+                      "type": "number"
+                    },
+                    "usage": {
+                      "type": "object",
+                      "properties": {
+                        "input": {
+                          "type": "number"
+                        },
+                        "output": {
+                          "type": "number"
+                        },
+                        "cached": {
+                          "type": "number"
+                        },
+                        "milliseconds": {
+                          "type": "number"
+                        },
+                        "model": {
+                          "type": "string"
+                        },
+                        "measured": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": ["input", "output", "cached", "milliseconds", "model", "measured"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "id",
+                    "revision",
+                    "root",
+                    "session",
+                    "scope",
+                    "investigation",
+                    "parent",
+                    "digest",
+                    "requirements",
+                    "findings",
+                    "sources",
+                    "dependencies",
+                    "model",
+                    "destination",
+                    "policy",
+                    "state",
+                    "prompt",
+                    "hash",
+                    "started",
+                    "updated",
+                    "usage"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "ForgeError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForgeError"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Record explicitly selected findings without generating or submitting a prompt",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9-]{36}$"
+                  },
+                  "investigation": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9-]{36}$"
+                  },
+                  "revision": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9-]{36}$"
+                  },
+                  "session": {
+                    "type": "string"
+                  },
+                  "selected": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 5
+                  },
+                  "feedback": {
+                    "type": "string",
+                    "maxLength": 30000
+                  },
+                  "previous": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9-]{36}$"
+                      },
+                      "revision": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9-]{36}$"
+                      },
+                      "session": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["id", "revision"],
+                    "additionalProperties": false
+                  }
+                },
+                "required": ["key", "investigation", "revision", "selected"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createKiloClient } from \"@kilocode/sdk\"\n\nconst client = createKiloClient()\nawait client.forge.chooseDirection({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/forge/preparations/write": {
+      "post": {
+        "tags": ["forge"],
+        "operationId": "forge.writePrompt",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "version": {
+                      "type": "number",
+                      "enum": [1]
+                    },
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9-]{36}$"
+                    },
+                    "revision": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9-]{36}$"
+                    },
+                    "root": {
+                      "type": "string"
+                    },
+                    "session": {
+                      "type": "string"
+                    },
+                    "scope": {
+                      "type": "string"
+                    },
+                    "investigation": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9-]{36}$"
+                    },
+                    "parent": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9-]{36}$"
+                    },
+                    "digest": {
+                      "type": "string"
+                    },
+                    "requirements": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "text": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["id", "label", "text"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "edits": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "before": {
+                            "type": "string",
+                            "maxLength": 100000
+                          },
+                          "after": {
+                            "type": "string",
+                            "maxLength": 100000
+                          }
+                        },
+                        "required": ["before", "after"],
+                        "additionalProperties": false
+                      },
+                      "maxItems": 100
+                    },
+                    "findings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "title": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": ["defect", "improvement", "feature", "diagnostic"]
+                          },
+                          "support": {
+                            "type": "string",
+                            "enum": ["observed", "inferred", "unresolved", "contradicted"]
+                          },
+                          "explanation": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "benefit": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "evidence": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "pattern": "^[a-f0-9]{24}$"
+                            },
+                            "maxItems": 24
+                          },
+                          "counterevidence": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "pattern": "^[a-f0-9]{24}$"
+                            },
+                            "maxItems": 24
+                          },
+                          "unknowns": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "pattern": "\\S",
+                              "maxLength": 4000
+                            },
+                            "maxItems": 12
+                          },
+                          "action": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "verification": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "pattern": "\\S",
+                              "maxLength": 4000
+                            },
+                            "maxItems": 12
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "title",
+                          "kind",
+                          "support",
+                          "explanation",
+                          "benefit",
+                          "evidence",
+                          "counterevidence",
+                          "unknowns",
+                          "action",
+                          "verification"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "sources": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "agent",
+                              "directory",
+                              "code",
+                              "symbol",
+                              "test",
+                              "document",
+                              "dependency",
+                              "schema",
+                              "configuration",
+                              "instruction",
+                              "goal",
+                              "memory",
+                              "history",
+                              "tool",
+                              "attachment",
+                              "summary",
+                              "opportunity"
+                            ]
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "uri": {
+                            "type": "string"
+                          },
+                          "hash": {
+                            "type": "string"
+                          },
+                          "text": {
+                            "type": "string"
+                          },
+                          "start": {
+                            "type": "number"
+                          },
+                          "end": {
+                            "type": "number"
+                          },
+                          "observed": {
+                            "type": "number"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": ["current", "stale", "unavailable"]
+                          },
+                          "inferred": {
+                            "type": "boolean"
+                          },
+                          "evidence": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "detail": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "kind",
+                          "label",
+                          "uri",
+                          "hash",
+                          "text",
+                          "start",
+                          "end",
+                          "observed",
+                          "method",
+                          "status",
+                          "inferred",
+                          "evidence",
+                          "detail"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "dependencies": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "agent",
+                              "directory",
+                              "code",
+                              "symbol",
+                              "test",
+                              "document",
+                              "dependency",
+                              "schema",
+                              "configuration",
+                              "instruction",
+                              "goal",
+                              "memory",
+                              "history",
+                              "tool",
+                              "attachment",
+                              "summary",
+                              "opportunity"
+                            ]
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "uri": {
+                            "type": "string"
+                          },
+                          "hash": {
+                            "type": "string"
+                          },
+                          "text": {
+                            "type": "string"
+                          },
+                          "start": {
+                            "type": "number"
+                          },
+                          "end": {
+                            "type": "number"
+                          },
+                          "observed": {
+                            "type": "number"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": ["current", "stale", "unavailable"]
+                          },
+                          "inferred": {
+                            "type": "boolean"
+                          },
+                          "evidence": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "detail": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "kind",
+                          "label",
+                          "uri",
+                          "hash",
+                          "text",
+                          "start",
+                          "end",
+                          "observed",
+                          "method",
+                          "status",
+                          "inferred",
+                          "evidence",
+                          "detail"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "model": {
+                      "type": "object",
+                      "properties": {
+                        "providerID": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "modelID": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256
+                        }
+                      },
+                      "required": ["providerID", "modelID"],
+                      "additionalProperties": false
+                    },
+                    "destination": {
+                      "type": "string"
+                    },
+                    "policy": {
+                      "type": "string"
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": ["selected", "writing", "ready", "failed", "cancelled", "interrupted"]
+                    },
+                    "attempt": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9-]{36}$"
+                    },
+                    "origin": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9-]{36}$"
+                    },
+                    "prompt": {
+                      "type": "string"
+                    },
+                    "hash": {
+                      "type": "string"
+                    },
+                    "task": {
+                      "type": "object",
+                      "properties": {
+                        "objective": {
+                          "type": "string",
+                          "pattern": "\\S",
+                          "maxLength": 4000
+                        },
+                        "basis": {
+                          "type": "string",
+                          "pattern": "\\S",
+                          "maxLength": 4000
+                        },
+                        "changes": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "maxItems": 12
+                        },
+                        "constraints": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "maxItems": 12
+                        },
+                        "verification": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "maxItems": 12
+                        },
+                        "evidence": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "maxItems": 100
+                        },
+                        "requirements": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "maxItems": 100
+                        }
+                      },
+                      "required": [
+                        "objective",
+                        "basis",
+                        "changes",
+                        "constraints",
+                        "verification",
+                        "evidence",
+                        "requirements"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "started": {
+                      "type": "number"
+                    },
+                    "updated": {
+                      "type": "number"
+                    },
+                    "usage": {
+                      "type": "object",
+                      "properties": {
+                        "input": {
+                          "type": "number"
+                        },
+                        "output": {
+                          "type": "number"
+                        },
+                        "cached": {
+                          "type": "number"
+                        },
+                        "milliseconds": {
+                          "type": "number"
+                        },
+                        "model": {
+                          "type": "string"
+                        },
+                        "measured": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": ["input", "output", "cached", "milliseconds", "model", "measured"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "id",
+                    "revision",
+                    "root",
+                    "session",
+                    "scope",
+                    "investigation",
+                    "parent",
+                    "digest",
+                    "requirements",
+                    "findings",
+                    "sources",
+                    "dependencies",
+                    "model",
+                    "destination",
+                    "policy",
+                    "state",
+                    "prompt",
+                    "hash",
+                    "started",
+                    "updated",
+                    "usage"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "ForgeError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForgeError"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Write a concise prompt from a selected and validated investigation direction",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9-]{36}$"
+                  },
+                  "key": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9-]{36}$"
+                  },
+                  "revision": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9-]{36}$"
+                  },
+                  "session": {
+                    "type": "string"
+                  }
+                },
+                "required": ["id", "key", "revision"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createKiloClient } from \"@kilocode/sdk\"\n\nconst client = createKiloClient()\nawait client.forge.writePrompt({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/forge/preparations/edit": {
+      "post": {
+        "tags": ["forge"],
+        "operationId": "forge.editPrompt",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "version": {
+                      "type": "number",
+                      "enum": [1]
+                    },
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9-]{36}$"
+                    },
+                    "revision": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9-]{36}$"
+                    },
+                    "root": {
+                      "type": "string"
+                    },
+                    "session": {
+                      "type": "string"
+                    },
+                    "scope": {
+                      "type": "string"
+                    },
+                    "investigation": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9-]{36}$"
+                    },
+                    "parent": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9-]{36}$"
+                    },
+                    "digest": {
+                      "type": "string"
+                    },
+                    "requirements": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "text": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["id", "label", "text"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "edits": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "before": {
+                            "type": "string",
+                            "maxLength": 100000
+                          },
+                          "after": {
+                            "type": "string",
+                            "maxLength": 100000
+                          }
+                        },
+                        "required": ["before", "after"],
+                        "additionalProperties": false
+                      },
+                      "maxItems": 100
+                    },
+                    "findings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "title": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": ["defect", "improvement", "feature", "diagnostic"]
+                          },
+                          "support": {
+                            "type": "string",
+                            "enum": ["observed", "inferred", "unresolved", "contradicted"]
+                          },
+                          "explanation": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "benefit": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "evidence": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "pattern": "^[a-f0-9]{24}$"
+                            },
+                            "maxItems": 24
+                          },
+                          "counterevidence": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "pattern": "^[a-f0-9]{24}$"
+                            },
+                            "maxItems": 24
+                          },
+                          "unknowns": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "pattern": "\\S",
+                              "maxLength": 4000
+                            },
+                            "maxItems": 12
+                          },
+                          "action": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "verification": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "pattern": "\\S",
+                              "maxLength": 4000
+                            },
+                            "maxItems": 12
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "title",
+                          "kind",
+                          "support",
+                          "explanation",
+                          "benefit",
+                          "evidence",
+                          "counterevidence",
+                          "unknowns",
+                          "action",
+                          "verification"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "sources": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "agent",
+                              "directory",
+                              "code",
+                              "symbol",
+                              "test",
+                              "document",
+                              "dependency",
+                              "schema",
+                              "configuration",
+                              "instruction",
+                              "goal",
+                              "memory",
+                              "history",
+                              "tool",
+                              "attachment",
+                              "summary",
+                              "opportunity"
+                            ]
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "uri": {
+                            "type": "string"
+                          },
+                          "hash": {
+                            "type": "string"
+                          },
+                          "text": {
+                            "type": "string"
+                          },
+                          "start": {
+                            "type": "number"
+                          },
+                          "end": {
+                            "type": "number"
+                          },
+                          "observed": {
+                            "type": "number"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": ["current", "stale", "unavailable"]
+                          },
+                          "inferred": {
+                            "type": "boolean"
+                          },
+                          "evidence": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "detail": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "kind",
+                          "label",
+                          "uri",
+                          "hash",
+                          "text",
+                          "start",
+                          "end",
+                          "observed",
+                          "method",
+                          "status",
+                          "inferred",
+                          "evidence",
+                          "detail"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "dependencies": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "agent",
+                              "directory",
+                              "code",
+                              "symbol",
+                              "test",
+                              "document",
+                              "dependency",
+                              "schema",
+                              "configuration",
+                              "instruction",
+                              "goal",
+                              "memory",
+                              "history",
+                              "tool",
+                              "attachment",
+                              "summary",
+                              "opportunity"
+                            ]
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "uri": {
+                            "type": "string"
+                          },
+                          "hash": {
+                            "type": "string"
+                          },
+                          "text": {
+                            "type": "string"
+                          },
+                          "start": {
+                            "type": "number"
+                          },
+                          "end": {
+                            "type": "number"
+                          },
+                          "observed": {
+                            "type": "number"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": ["current", "stale", "unavailable"]
+                          },
+                          "inferred": {
+                            "type": "boolean"
+                          },
+                          "evidence": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "detail": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "kind",
+                          "label",
+                          "uri",
+                          "hash",
+                          "text",
+                          "start",
+                          "end",
+                          "observed",
+                          "method",
+                          "status",
+                          "inferred",
+                          "evidence",
+                          "detail"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "model": {
+                      "type": "object",
+                      "properties": {
+                        "providerID": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "modelID": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256
+                        }
+                      },
+                      "required": ["providerID", "modelID"],
+                      "additionalProperties": false
+                    },
+                    "destination": {
+                      "type": "string"
+                    },
+                    "policy": {
+                      "type": "string"
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": ["selected", "writing", "ready", "failed", "cancelled", "interrupted"]
+                    },
+                    "attempt": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9-]{36}$"
+                    },
+                    "origin": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9-]{36}$"
+                    },
+                    "prompt": {
+                      "type": "string"
+                    },
+                    "hash": {
+                      "type": "string"
+                    },
+                    "task": {
+                      "type": "object",
+                      "properties": {
+                        "objective": {
+                          "type": "string",
+                          "pattern": "\\S",
+                          "maxLength": 4000
+                        },
+                        "basis": {
+                          "type": "string",
+                          "pattern": "\\S",
+                          "maxLength": 4000
+                        },
+                        "changes": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "maxItems": 12
+                        },
+                        "constraints": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "maxItems": 12
+                        },
+                        "verification": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "maxItems": 12
+                        },
+                        "evidence": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "maxItems": 100
+                        },
+                        "requirements": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "maxItems": 100
+                        }
+                      },
+                      "required": [
+                        "objective",
+                        "basis",
+                        "changes",
+                        "constraints",
+                        "verification",
+                        "evidence",
+                        "requirements"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "started": {
+                      "type": "number"
+                    },
+                    "updated": {
+                      "type": "number"
+                    },
+                    "usage": {
+                      "type": "object",
+                      "properties": {
+                        "input": {
+                          "type": "number"
+                        },
+                        "output": {
+                          "type": "number"
+                        },
+                        "cached": {
+                          "type": "number"
+                        },
+                        "milliseconds": {
+                          "type": "number"
+                        },
+                        "model": {
+                          "type": "string"
+                        },
+                        "measured": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": ["input", "output", "cached", "milliseconds", "model", "measured"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "id",
+                    "revision",
+                    "root",
+                    "session",
+                    "scope",
+                    "investigation",
+                    "parent",
+                    "digest",
+                    "requirements",
+                    "findings",
+                    "sources",
+                    "dependencies",
+                    "model",
+                    "destination",
+                    "policy",
+                    "state",
+                    "prompt",
+                    "hash",
+                    "started",
+                    "updated",
+                    "usage"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "ForgeError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForgeError"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Record human prompt edits while retaining evidence restrictions",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9-]{36}$"
+                  },
+                  "revision": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9-]{36}$"
+                  },
+                  "session": {
+                    "type": "string"
+                  },
+                  "text": {
+                    "type": "string",
+                    "pattern": "\\S",
+                    "maxLength": 100000
+                  }
+                },
+                "required": ["id", "revision", "text"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createKiloClient } from \"@kilocode/sdk\"\n\nconst client = createKiloClient()\nawait client.forge.editPrompt({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/forge/preparations/{id}": {
+      "get": {
+        "tags": ["forge"],
+        "operationId": "forge.preparedPrompt",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-f0-9-]{36}$"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "session",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "version": {
+                      "type": "number",
+                      "enum": [1]
+                    },
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9-]{36}$"
+                    },
+                    "revision": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9-]{36}$"
+                    },
+                    "root": {
+                      "type": "string"
+                    },
+                    "session": {
+                      "type": "string"
+                    },
+                    "scope": {
+                      "type": "string"
+                    },
+                    "investigation": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9-]{36}$"
+                    },
+                    "parent": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9-]{36}$"
+                    },
+                    "digest": {
+                      "type": "string"
+                    },
+                    "requirements": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "text": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["id", "label", "text"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "edits": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "before": {
+                            "type": "string",
+                            "maxLength": 100000
+                          },
+                          "after": {
+                            "type": "string",
+                            "maxLength": 100000
+                          }
+                        },
+                        "required": ["before", "after"],
+                        "additionalProperties": false
+                      },
+                      "maxItems": 100
+                    },
+                    "findings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "title": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": ["defect", "improvement", "feature", "diagnostic"]
+                          },
+                          "support": {
+                            "type": "string",
+                            "enum": ["observed", "inferred", "unresolved", "contradicted"]
+                          },
+                          "explanation": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "benefit": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "evidence": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "pattern": "^[a-f0-9]{24}$"
+                            },
+                            "maxItems": 24
+                          },
+                          "counterevidence": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "pattern": "^[a-f0-9]{24}$"
+                            },
+                            "maxItems": 24
+                          },
+                          "unknowns": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "pattern": "\\S",
+                              "maxLength": 4000
+                            },
+                            "maxItems": 12
+                          },
+                          "action": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "verification": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "pattern": "\\S",
+                              "maxLength": 4000
+                            },
+                            "maxItems": 12
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "title",
+                          "kind",
+                          "support",
+                          "explanation",
+                          "benefit",
+                          "evidence",
+                          "counterevidence",
+                          "unknowns",
+                          "action",
+                          "verification"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "sources": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "agent",
+                              "directory",
+                              "code",
+                              "symbol",
+                              "test",
+                              "document",
+                              "dependency",
+                              "schema",
+                              "configuration",
+                              "instruction",
+                              "goal",
+                              "memory",
+                              "history",
+                              "tool",
+                              "attachment",
+                              "summary",
+                              "opportunity"
+                            ]
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "uri": {
+                            "type": "string"
+                          },
+                          "hash": {
+                            "type": "string"
+                          },
+                          "text": {
+                            "type": "string"
+                          },
+                          "start": {
+                            "type": "number"
+                          },
+                          "end": {
+                            "type": "number"
+                          },
+                          "observed": {
+                            "type": "number"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": ["current", "stale", "unavailable"]
+                          },
+                          "inferred": {
+                            "type": "boolean"
+                          },
+                          "evidence": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "detail": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "kind",
+                          "label",
+                          "uri",
+                          "hash",
+                          "text",
+                          "start",
+                          "end",
+                          "observed",
+                          "method",
+                          "status",
+                          "inferred",
+                          "evidence",
+                          "detail"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "dependencies": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "agent",
+                              "directory",
+                              "code",
+                              "symbol",
+                              "test",
+                              "document",
+                              "dependency",
+                              "schema",
+                              "configuration",
+                              "instruction",
+                              "goal",
+                              "memory",
+                              "history",
+                              "tool",
+                              "attachment",
+                              "summary",
+                              "opportunity"
+                            ]
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "uri": {
+                            "type": "string"
+                          },
+                          "hash": {
+                            "type": "string"
+                          },
+                          "text": {
+                            "type": "string"
+                          },
+                          "start": {
+                            "type": "number"
+                          },
+                          "end": {
+                            "type": "number"
+                          },
+                          "observed": {
+                            "type": "number"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": ["current", "stale", "unavailable"]
+                          },
+                          "inferred": {
+                            "type": "boolean"
+                          },
+                          "evidence": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "detail": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "kind",
+                          "label",
+                          "uri",
+                          "hash",
+                          "text",
+                          "start",
+                          "end",
+                          "observed",
+                          "method",
+                          "status",
+                          "inferred",
+                          "evidence",
+                          "detail"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "model": {
+                      "type": "object",
+                      "properties": {
+                        "providerID": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "modelID": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256
+                        }
+                      },
+                      "required": ["providerID", "modelID"],
+                      "additionalProperties": false
+                    },
+                    "destination": {
+                      "type": "string"
+                    },
+                    "policy": {
+                      "type": "string"
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": ["selected", "writing", "ready", "failed", "cancelled", "interrupted"]
+                    },
+                    "attempt": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9-]{36}$"
+                    },
+                    "origin": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9-]{36}$"
+                    },
+                    "prompt": {
+                      "type": "string"
+                    },
+                    "hash": {
+                      "type": "string"
+                    },
+                    "task": {
+                      "type": "object",
+                      "properties": {
+                        "objective": {
+                          "type": "string",
+                          "pattern": "\\S",
+                          "maxLength": 4000
+                        },
+                        "basis": {
+                          "type": "string",
+                          "pattern": "\\S",
+                          "maxLength": 4000
+                        },
+                        "changes": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "maxItems": 12
+                        },
+                        "constraints": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "maxItems": 12
+                        },
+                        "verification": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "maxItems": 12
+                        },
+                        "evidence": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "maxItems": 100
+                        },
+                        "requirements": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "maxItems": 100
+                        }
+                      },
+                      "required": [
+                        "objective",
+                        "basis",
+                        "changes",
+                        "constraints",
+                        "verification",
+                        "evidence",
+                        "requirements"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "started": {
+                      "type": "number"
+                    },
+                    "updated": {
+                      "type": "number"
+                    },
+                    "usage": {
+                      "type": "object",
+                      "properties": {
+                        "input": {
+                          "type": "number"
+                        },
+                        "output": {
+                          "type": "number"
+                        },
+                        "cached": {
+                          "type": "number"
+                        },
+                        "milliseconds": {
+                          "type": "number"
+                        },
+                        "model": {
+                          "type": "string"
+                        },
+                        "measured": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": ["input", "output", "cached", "milliseconds", "model", "measured"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "id",
+                    "revision",
+                    "root",
+                    "session",
+                    "scope",
+                    "investigation",
+                    "parent",
+                    "digest",
+                    "requirements",
+                    "findings",
+                    "sources",
+                    "dependencies",
+                    "model",
+                    "destination",
+                    "policy",
+                    "state",
+                    "prompt",
+                    "hash",
+                    "started",
+                    "updated",
+                    "usage"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "ForgeError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForgeError"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Revalidate a prepared prompt and its selected evidence",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createKiloClient } from \"@kilocode/sdk\"\n\nconst client = createKiloClient()\nawait client.forge.preparedPrompt({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/forge/preparations/bind": {
+      "post": {
+        "tags": ["forge"],
+        "operationId": "forge.bindPrompt",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "version": {
+                      "type": "number",
+                      "enum": [1]
+                    },
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9-]{36}$"
+                    },
+                    "revision": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9-]{36}$"
+                    },
+                    "root": {
+                      "type": "string"
+                    },
+                    "session": {
+                      "type": "string"
+                    },
+                    "scope": {
+                      "type": "string"
+                    },
+                    "investigation": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9-]{36}$"
+                    },
+                    "parent": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9-]{36}$"
+                    },
+                    "digest": {
+                      "type": "string"
+                    },
+                    "requirements": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "text": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["id", "label", "text"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "edits": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "before": {
+                            "type": "string",
+                            "maxLength": 100000
+                          },
+                          "after": {
+                            "type": "string",
+                            "maxLength": 100000
+                          }
+                        },
+                        "required": ["before", "after"],
+                        "additionalProperties": false
+                      },
+                      "maxItems": 100
+                    },
+                    "findings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "title": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": ["defect", "improvement", "feature", "diagnostic"]
+                          },
+                          "support": {
+                            "type": "string",
+                            "enum": ["observed", "inferred", "unresolved", "contradicted"]
+                          },
+                          "explanation": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "benefit": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "evidence": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "pattern": "^[a-f0-9]{24}$"
+                            },
+                            "maxItems": 24
+                          },
+                          "counterevidence": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "pattern": "^[a-f0-9]{24}$"
+                            },
+                            "maxItems": 24
+                          },
+                          "unknowns": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "pattern": "\\S",
+                              "maxLength": 4000
+                            },
+                            "maxItems": 12
+                          },
+                          "action": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "verification": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "pattern": "\\S",
+                              "maxLength": 4000
+                            },
+                            "maxItems": 12
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "title",
+                          "kind",
+                          "support",
+                          "explanation",
+                          "benefit",
+                          "evidence",
+                          "counterevidence",
+                          "unknowns",
+                          "action",
+                          "verification"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "sources": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "agent",
+                              "directory",
+                              "code",
+                              "symbol",
+                              "test",
+                              "document",
+                              "dependency",
+                              "schema",
+                              "configuration",
+                              "instruction",
+                              "goal",
+                              "memory",
+                              "history",
+                              "tool",
+                              "attachment",
+                              "summary",
+                              "opportunity"
+                            ]
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "uri": {
+                            "type": "string"
+                          },
+                          "hash": {
+                            "type": "string"
+                          },
+                          "text": {
+                            "type": "string"
+                          },
+                          "start": {
+                            "type": "number"
+                          },
+                          "end": {
+                            "type": "number"
+                          },
+                          "observed": {
+                            "type": "number"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": ["current", "stale", "unavailable"]
+                          },
+                          "inferred": {
+                            "type": "boolean"
+                          },
+                          "evidence": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "detail": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "kind",
+                          "label",
+                          "uri",
+                          "hash",
+                          "text",
+                          "start",
+                          "end",
+                          "observed",
+                          "method",
+                          "status",
+                          "inferred",
+                          "evidence",
+                          "detail"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "dependencies": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "agent",
+                              "directory",
+                              "code",
+                              "symbol",
+                              "test",
+                              "document",
+                              "dependency",
+                              "schema",
+                              "configuration",
+                              "instruction",
+                              "goal",
+                              "memory",
+                              "history",
+                              "tool",
+                              "attachment",
+                              "summary",
+                              "opportunity"
+                            ]
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "uri": {
+                            "type": "string"
+                          },
+                          "hash": {
+                            "type": "string"
+                          },
+                          "text": {
+                            "type": "string"
+                          },
+                          "start": {
+                            "type": "number"
+                          },
+                          "end": {
+                            "type": "number"
+                          },
+                          "observed": {
+                            "type": "number"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": ["current", "stale", "unavailable"]
+                          },
+                          "inferred": {
+                            "type": "boolean"
+                          },
+                          "evidence": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "detail": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "kind",
+                          "label",
+                          "uri",
+                          "hash",
+                          "text",
+                          "start",
+                          "end",
+                          "observed",
+                          "method",
+                          "status",
+                          "inferred",
+                          "evidence",
+                          "detail"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "model": {
+                      "type": "object",
+                      "properties": {
+                        "providerID": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "modelID": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256
+                        }
+                      },
+                      "required": ["providerID", "modelID"],
+                      "additionalProperties": false
+                    },
+                    "destination": {
+                      "type": "string"
+                    },
+                    "policy": {
+                      "type": "string"
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": ["selected", "writing", "ready", "failed", "cancelled", "interrupted"]
+                    },
+                    "attempt": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9-]{36}$"
+                    },
+                    "origin": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9-]{36}$"
+                    },
+                    "prompt": {
+                      "type": "string"
+                    },
+                    "hash": {
+                      "type": "string"
+                    },
+                    "task": {
+                      "type": "object",
+                      "properties": {
+                        "objective": {
+                          "type": "string",
+                          "pattern": "\\S",
+                          "maxLength": 4000
+                        },
+                        "basis": {
+                          "type": "string",
+                          "pattern": "\\S",
+                          "maxLength": 4000
+                        },
+                        "changes": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "maxItems": 12
+                        },
+                        "constraints": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "maxItems": 12
+                        },
+                        "verification": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "pattern": "\\S",
+                            "maxLength": 4000
+                          },
+                          "maxItems": 12
+                        },
+                        "evidence": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "maxItems": 100
+                        },
+                        "requirements": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "maxItems": 100
+                        }
+                      },
+                      "required": [
+                        "objective",
+                        "basis",
+                        "changes",
+                        "constraints",
+                        "verification",
+                        "evidence",
+                        "requirements"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "started": {
+                      "type": "number"
+                    },
+                    "updated": {
+                      "type": "number"
+                    },
+                    "usage": {
+                      "type": "object",
+                      "properties": {
+                        "input": {
+                          "type": "number"
+                        },
+                        "output": {
+                          "type": "number"
+                        },
+                        "cached": {
+                          "type": "number"
+                        },
+                        "milliseconds": {
+                          "type": "number"
+                        },
+                        "model": {
+                          "type": "string"
+                        },
+                        "measured": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": ["input", "output", "cached", "milliseconds", "model", "measured"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "id",
+                    "revision",
+                    "root",
+                    "session",
+                    "scope",
+                    "investigation",
+                    "parent",
+                    "digest",
+                    "requirements",
+                    "findings",
+                    "sources",
+                    "dependencies",
+                    "model",
+                    "destination",
+                    "policy",
+                    "state",
+                    "prompt",
+                    "hash",
+                    "started",
+                    "updated",
+                    "usage"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "ForgeError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForgeError"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Validate and bind an explicitly submitted prepared prompt to its coding session",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "binding": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9-]{36}$"
+                      },
+                      "revision": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9-]{36}$"
+                      },
+                      "hash": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$"
+                      },
+                      "session": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["id", "revision", "hash"],
+                    "additionalProperties": false
+                  },
+                  "text": {
+                    "type": "string",
+                    "pattern": "\\S",
+                    "maxLength": 100000
+                  },
+                  "session": {
+                    "type": "string"
+                  },
+                  "model": {
+                    "type": "object",
+                    "properties": {
+                      "providerID": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "modelID": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256
+                      }
+                    },
+                    "required": ["providerID", "modelID"],
+                    "additionalProperties": false
+                  }
+                },
+                "required": ["binding", "text", "session", "model"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createKiloClient } from \"@kilocode/sdk\"\n\nconst client = createKiloClient()\nawait client.forge.bindPrompt({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/forge/validate": {
       "post": {
         "tags": ["forge"],
@@ -37720,6 +42582,9 @@
             "$ref": "#/components/schemas/EventSandboxStatusChanged"
           },
           {
+            "$ref": "#/components/schemas/EventForgeChanged"
+          },
+          {
             "$ref": "#/components/schemas/EventSuggestionShown"
           },
           {
@@ -37745,9 +42610,6 @@
           },
           {
             "$ref": "#/components/schemas/EventKilo-sessionsRemote-status-changed"
-          },
-          {
-            "$ref": "#/components/schemas/EventForgeChanged"
           },
           {
             "$ref": "#/components/schemas/EventLspClientDiagnostics"
@@ -40863,6 +45725,9 @@
                 "$ref": "#/components/schemas/EventSandboxStatusChanged"
               },
               {
+                "$ref": "#/components/schemas/EventForgeChanged"
+              },
+              {
                 "$ref": "#/components/schemas/EventSuggestionShown"
               },
               {
@@ -40888,9 +45753,6 @@
               },
               {
                 "$ref": "#/components/schemas/EventKilo-sessionsRemote-status-changed"
-              },
-              {
-                "$ref": "#/components/schemas/EventForgeChanged"
               },
               {
                 "$ref": "#/components/schemas/EventLspClientDiagnostics"
@@ -53762,6 +58624,37 @@
         "required": ["id", "type", "properties"],
         "additionalProperties": false
       },
+      "EventForgeChanged": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["forge.changed"]
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "topic": {
+                "type": "string",
+                "enum": ["knowledge", "policy", "request", "job", "invalidate"]
+              },
+              "session": {
+                "type": "string"
+              },
+              "revision": {
+                "type": "string"
+              }
+            },
+            "required": ["topic", "session", "revision"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["id", "type", "properties"],
+        "additionalProperties": false
+      },
       "EventSuggestionShown": {
         "type": "object",
         "properties": {
@@ -54058,37 +58951,6 @@
               }
             },
             "required": ["enabled", "connected"],
-            "additionalProperties": false
-          }
-        },
-        "required": ["id", "type", "properties"],
-        "additionalProperties": false
-      },
-      "EventForgeChanged": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string",
-            "enum": ["forge.changed"]
-          },
-          "properties": {
-            "type": "object",
-            "properties": {
-              "topic": {
-                "type": "string",
-                "enum": ["knowledge", "policy", "request", "job", "invalidate"]
-              },
-              "session": {
-                "type": "string"
-              },
-              "revision": {
-                "type": "string"
-              }
-            },
-            "required": ["topic", "session", "revision"],
             "additionalProperties": false
           }
         },

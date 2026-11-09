@@ -4,6 +4,8 @@ import { ProviderV2 } from "@opencode-ai/core/provider"
 import { Provider } from "@/provider/provider"
 import * as Config from "@/config/config"
 import { Env } from "@/env"
+import { EnhancementError, failure } from "@kilocode/forge/enhancement"
+import { route } from "./routing"
 
 const credential = /authorization|cookie|api[-_]?key|token|password|secret|credential|private[-_]?key/i
 
@@ -28,7 +30,11 @@ export function describe(value: unknown, env: Record<string, string | undefined>
       return Object.fromEntries(Object.entries(value).filter(([key]) => !credential.test(key))
         .sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => [key, normalize(item, key)]))
     }
-    if (typeof value === "function") throw new Error("Custom provider routing functions cannot receive Forge knowledge approval")
+    if (typeof value === "function") {
+      const known = route(value)
+      if (known) return normalize(known, field)
+      throw new EnhancementError("Custom provider routing functions cannot receive Forge approval. Use a supported built-in provider transport. No model request was made.", failure("transport"))
+    }
     return value
   }
   const normalized = normalize(value)

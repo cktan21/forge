@@ -126,8 +126,12 @@ import type {
   FindTextResponses,
   ForgeBaselineErrors,
   ForgeBaselineResponses,
+  ForgeBindPromptErrors,
+  ForgeBindPromptResponses,
   ForgeCancelErrors,
   ForgeCancelResponses,
+  ForgeChooseDirectionErrors,
+  ForgeChooseDirectionResponses,
   ForgeCollectionErrors,
   ForgeCollectionResponses,
   ForgeConfigureErrors,
@@ -136,6 +140,8 @@ import type {
   ForgeDatabaseResponses,
   ForgeDecideErrors,
   ForgeDecideResponses,
+  ForgeEditPromptErrors,
+  ForgeEditPromptResponses,
   ForgeEmbeddingApproveErrors,
   ForgeEmbeddingApproveResponses,
   ForgeEmbeddingCancelErrors,
@@ -171,6 +177,15 @@ import type {
   ForgeImportsResponses,
   ForgeIndexErrors,
   ForgeIndexResponses,
+  ForgeInvestigateErrors,
+  ForgeInvestigateResponses,
+  ForgeInvestigateStreamErrors,
+  ForgeInvestigateStreamResponse,
+  ForgeInvestigateStreamResponses,
+  ForgeInvestigationErrors,
+  ForgeInvestigationResponses,
+  ForgeInvestigationStatusErrors,
+  ForgeInvestigationStatusResponses,
   ForgeKnowledgeErrors,
   ForgeKnowledgeResponses,
   ForgeOpportunitiesErrors,
@@ -179,6 +194,8 @@ import type {
   ForgeOverviewResponses,
   ForgePolicyErrors,
   ForgePolicyResponses,
+  ForgePreparedPromptErrors,
+  ForgePreparedPromptResponses,
   ForgePreviewErrors,
   ForgePreviewResponses,
   ForgeRefreshErrors,
@@ -201,6 +218,8 @@ import type {
   ForgeValidateResponses,
   ForgeViewErrors,
   ForgeViewResponses,
+  ForgeWritePromptErrors,
+  ForgeWritePromptResponses,
   FormatterStatusErrors,
   FormatterStatusResponses,
   GlobalConfigGetErrors,
@@ -8039,6 +8058,402 @@ export class Forge extends HeyApiClient {
       ThrowOnError
     >({
       url: "/forge/enhance/stream",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Inspect whether read-only investigative enhancement is enabled
+   */
+  public investigationStatus<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      session?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "session" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      ForgeInvestigationStatusResponses,
+      ForgeInvestigationStatusErrors,
+      ThrowOnError
+    >({
+      url: "/forge/investigations/status",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Investigate a request using bounded read-only tools before writing a prompt
+   */
+  public investigate<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      key: string
+      text: string
+      session?: string
+      model?: {
+        providerID: string
+        modelID: string
+      }
+      answers?: string
+      feedback?: string
+      previous?: {
+        id: string
+        revision: string
+        session?: string
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "key" },
+            { in: "body", key: "text" },
+            { in: "body", key: "session" },
+            { in: "body", key: "model" },
+            { in: "body", key: "answers" },
+            { in: "body", key: "feedback" },
+            { in: "body", key: "previous" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ForgeInvestigateResponses, ForgeInvestigateErrors, ThrowOnError>({
+      url: "/forge/investigations",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Stream scoped investigation progress and validated findings
+   */
+  public investigateStream<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      key: string
+      text: string
+      session?: string
+      model?: {
+        providerID: string
+        modelID: string
+      }
+      answers?: string
+      feedback?: string
+      previous?: {
+        id: string
+        revision: string
+        session?: string
+      }
+    },
+    options?: Options<never, ThrowOnError, ForgeInvestigateStreamResponse>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "key" },
+            { in: "body", key: "text" },
+            { in: "body", key: "session" },
+            { in: "body", key: "model" },
+            { in: "body", key: "answers" },
+            { in: "body", key: "feedback" },
+            { in: "body", key: "previous" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).sse.post<
+      ForgeInvestigateStreamResponses,
+      ForgeInvestigateStreamErrors,
+      ThrowOnError
+    >({
+      url: "/forge/investigations/stream",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Read a retained investigation after revalidating its evidence and permissions
+   */
+  public investigation<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+      session?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "session" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ForgeInvestigationResponses, ForgeInvestigationErrors, ThrowOnError>({
+      url: "/forge/investigations/{id}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Record explicitly selected findings without generating or submitting a prompt
+   */
+  public chooseDirection<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      key: string
+      investigation: string
+      revision: string
+      session?: string
+      selected: Array<string>
+      feedback?: string
+      previous?: {
+        id: string
+        revision: string
+        session?: string
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "key" },
+            { in: "body", key: "investigation" },
+            { in: "body", key: "revision" },
+            { in: "body", key: "session" },
+            { in: "body", key: "selected" },
+            { in: "body", key: "feedback" },
+            { in: "body", key: "previous" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ForgeChooseDirectionResponses,
+      ForgeChooseDirectionErrors,
+      ThrowOnError
+    >({
+      url: "/forge/preparations",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Write a concise prompt from a selected and validated investigation direction
+   */
+  public writePrompt<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      id: string
+      key: string
+      revision: string
+      session?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "id" },
+            { in: "body", key: "key" },
+            { in: "body", key: "revision" },
+            { in: "body", key: "session" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ForgeWritePromptResponses, ForgeWritePromptErrors, ThrowOnError>({
+      url: "/forge/preparations/write",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Record human prompt edits while retaining evidence restrictions
+   */
+  public editPrompt<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      id: string
+      revision: string
+      session?: string
+      text: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "id" },
+            { in: "body", key: "revision" },
+            { in: "body", key: "session" },
+            { in: "body", key: "text" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ForgeEditPromptResponses, ForgeEditPromptErrors, ThrowOnError>({
+      url: "/forge/preparations/edit",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Revalidate a prepared prompt and its selected evidence
+   */
+  public preparedPrompt<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+      session?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "session" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ForgePreparedPromptResponses, ForgePreparedPromptErrors, ThrowOnError>({
+      url: "/forge/preparations/{id}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Validate and bind an explicitly submitted prepared prompt to its coding session
+   */
+  public bindPrompt<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      binding: {
+        id: string
+        revision: string
+        hash: string
+        session?: string
+      }
+      text: string
+      session: string
+      model: {
+        providerID: string
+        modelID: string
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "binding" },
+            { in: "body", key: "text" },
+            { in: "body", key: "session" },
+            { in: "body", key: "model" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ForgeBindPromptResponses, ForgeBindPromptErrors, ThrowOnError>({
+      url: "/forge/preparations/bind",
       ...options,
       ...params,
       headers: {

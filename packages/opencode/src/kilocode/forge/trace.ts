@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import { randomUUID } from "node:crypto"
 import type { Store, Entry, Manifest, Usage } from "@kilocode/forge"
-import type { Attempt, Collection, Destination } from "@kilocode/forge/schema"
+import type { Attempt, Collection, Destination, Source } from "@kilocode/forge/schema"
 import { usage } from "@kilocode/forge/schema"
 import { hash, id, redact, sanitize, tokens } from "@kilocode/forge/util"
 import * as Log from "@opencode-ai/core/util/log"
@@ -11,6 +11,7 @@ import { caveat, lineage } from "@kilocode/forge/lineage"
 import { caveat as lookupCaveat, lookups } from "@kilocode/forge/lookups"
 import { monitor } from "@kilocode/forge/model-response"
 import { outbound } from "./egress"
+import { route, type Fetch } from "./routing"
 
 const log = Log.create({ service: "forge.trace" })
 const stores = new Map<string, Store>()
@@ -36,10 +37,10 @@ function strings(value: unknown, result: string[] = [], depth = 0): string[] {
   return result
 }
 
-async function watch(input: { root: string; session?: string; messages: unknown; system?: readonly string[] }) {
+async function watch(input: { root: string; session?: string; messages: unknown; system?: readonly string[]; dependencies?: readonly Source[] }) {
   const store = stores.get(input.root)
   const body = [...input.system ?? [], ...strings(input.messages)].join("\n")
-  const ids = [...new Set([...body.matchAll(/\[([a-f0-9]{24})\]/g)].flatMap((match) => match.at(1) ?? []))]
+  const ids = [...new Set([...input.dependencies?.map((item) => item.id) ?? [], ...[...body.matchAll(/\[([a-f0-9]{24})\]/g)].flatMap((match) => match.at(1) ?? [])])]
   const sources = store ? await Promise.all(ids.map((key) => store.source(input.root, key))) : []
   const collections = [...new Set(sources.flatMap((item) => item?.detail.collection ? [item.detail.collection] : []))]
   // Persisted state also covers writers without this store's local notifications.
@@ -53,7 +54,7 @@ async function watch(input: { root: string; session?: string; messages: unknown;
   }
 }
 
-async function capture(input: { root: string; session?: string; model: string; purpose: string; system: readonly string[]; messages: unknown; tools?: unknown; options?: unknown; request?: string }) {
+async function capture(input: { root: string; session?: string; model: string; purpose: string; system: readonly string[]; messages: unknown; tools?: unknown; options?: unknown; request?: string; operation?: string; check?: () => Promise<void>; dependencies?: readonly Source[] }) {
   const store = stores.get(input.root)
   if (!store || process.env.KILO_FORGE_DISABLED === "1") return undefined
   const guard = await store.guard(input.root)
@@ -70,11 +71,11 @@ async function capture(input: { root: string; session?: string; model: string; p
   const ids = [...new Set([...body.matchAll(/\[([a-f0-9]{24})\]/g)].map((match) => match[1]!))]
   const selected = await Promise.all(ids.map((key) => store.source(input.root, key)))
   const provider = input.model.split("/").at(0) ?? ""
-  const required = selected.some((item) => item?.detail.collection)
+  const required = [...selected, ...input.dependencies ?? []].some((item) => item?.detail.collection)
   const routing = required
     ? await destinations.get(input.root)?.(provider)
     : undefined
-  const candidates = [...new Map([...selected.filter((item) => item != null), ...snapshot?.sources ?? []].map((item) => [item.id, item])).values()]
+  const candidates = [...new Map([...selected.filter((item) => item != null), ...snapshot?.sources ?? [], ...input.dependencies ?? []].map((item) => [item.id, item])).values()]
   const observed = candidates.filter((source) => (!source.detail.session || source.detail.session === (input.session ?? "")) && source.text.length >= 24 && body.includes(source.text))
   for (const source of observed.slice(0, 80)) entries.push({ source: source.id, kind: source.kind, label: source.label, uri: source.uri, hash: source.hash, text: redact(source.text).slice(0, 8000), tokens: tokens(source.text), stage: "assembled" })
   const text = redact(body)
@@ -99,8 +100,12 @@ async function capture(input: { root: string; session?: string; model: string; p
   const existing = input.request ? await store.request(input.root, input.session ?? "", input.request) : undefined
   const selection = existing?.purpose === input.purpose ? existing.selection : undefined
   const operations = [...new Set(resolved.map((item) => item.operation ?? item.id))]
-  const operation = preparation ? parent?.operation ?? preparation : operations.length === 1 ? operations.at(0)! : request
+  const operation = input.operation ?? (preparation ? parent?.operation ?? preparation : operations.length === 1 ? operations.at(0)! : request)
   let manifest: Manifest = { id: request, operation, selection, lookups: [...new Set(resolved.map((item) => item.id))], root: input.root, generation: snapshot?.generation ?? "unindexed", session: input.session ?? "", model: input.model, purpose: input.purpose, observed: Date.now(), entries, attempts: [], discarded: 0, coverage: ["Assembled request. Excerpts are bounded and redacted; per-source costs use conservative UTF-8 bytes. Tool internals and provider-hidden instructions are opaque.", "Entry stages describe the latest started transport attempt, not the union of retries. Each retained attempt records its own exact excerpt matches; unmatched excerpts may be transformed or removed. A response does not prove model processing. Pending attempts after interruption have unknown outcomes."], usage: usage(input.model), state: "assembled" }
+  if (input.dependencies?.length) manifest = { ...manifest, coverage: [...manifest.coverage,
+    `Derived-context dependencies: ${input.dependencies.length} originals, showing at most 100. These versions influenced the preparation; this does not assert that their raw text was included or transmitted.`,
+    ...input.dependencies.slice(0, 100).map((item) => `[${item.id}] ${item.uri}:${item.start}-${item.end} hash=${item.hash}`),
+  ] }
   if (references.length) manifest = { ...manifest, coverage: [...manifest.coverage, lookupCaveat, `${resolved.length}/${references.length} candidate search-tool references resolved in this session.`] }
   if (routing) manifest = { ...manifest, coverage: [...manifest.coverage, "Registered evidence uses reviewed-origin runtime fetch with automatic redirects disabled. This does not identify downstream processing destinations."] }
   if (preparation) manifest = { ...manifest, preparation, coverage: [...manifest.coverage, caveat] }
@@ -137,7 +142,7 @@ async function capture(input: { root: string; session?: string; model: string; p
   const handle = {
     id: manifest.id,
     run<A>(fn: () => A): A { return context.run(handle, fn) },
-    fetch(fetcher: typeof globalThis.fetch): typeof globalThis.fetch {
+    fetch(fetcher: Fetch): typeof globalThis.fetch {
       const wrapped = async (request: RequestInfo | URL, init?: RequestInit) => {
         const attempt: Attempt = { id: randomUUID(), sequence: ++sequence, started: Date.now(), state: "pending", sent: [], membership: "unknown" }
         const attempts = [...manifest.attempts ?? [], attempt]
@@ -152,6 +157,7 @@ async function capture(input: { root: string; session?: string; model: string; p
           // Authorization uses original passages, never the bounded/redacted display capture.
           await authorize(input)
           if (routing && routing.fingerprint !== (await destinations.get(input.root)?.(provider))?.fingerprint) throw new Error("Forge request routing changed during authorization. Prepare and review the request again.")
+          await input.check?.()
           await guard.check()
           await pending.check()
           invoked = true
@@ -171,7 +177,7 @@ async function capture(input: { root: string; session?: string; model: string; p
           throw err
         }
       }
-      return Object.assign(wrapped, { preconnect: fetcher.preconnect }) as typeof globalThis.fetch
+      return Object.assign(wrapped, { preconnect: fetcher.preconnect ?? (() => undefined) })
     },
     async finish(value: Partial<Usage>, failed = false) {
       completed = true
@@ -184,12 +190,13 @@ async function capture(input: { root: string; session?: string; model: string; p
 }
 
 export type Handle = NonNullable<Awaited<ReturnType<typeof capture>>>
-export async function authorize(input: { root: string; session?: string; model: string; messages: unknown; system?: readonly string[] }) {
+export async function authorize(input: { root: string; session?: string; model: string; messages: unknown; system?: readonly string[]; dependencies?: readonly Source[] }) {
   const store = stores.get(input.root)
   if (!store) return false
   const pending = await watch(input)
   const body = [...input.system ?? [], ...strings(input.messages)].join("\n")
-  const ids = [...new Set([...body.matchAll(/\[([a-f0-9]{24})\]/g)].map((match) => match[1]!))]
+  const dependencies = new Map(input.dependencies?.map((item) => [item.id, item]))
+  const ids = [...new Set([...dependencies.keys(), ...[...body.matchAll(/\[([a-f0-9]{24})\]/g)].map((match) => match[1]!)] )]
   if (!ids.length) return false
   const policies = await Promise.all([store.policy(input.root), store.policy(input.root, input.session ?? "")])
   const excluded = new Set(policies.flatMap((policy) => [...policy.exclude]))
@@ -199,12 +206,15 @@ export async function authorize(input: { root: string; session?: string; model: 
   for (const key of ids) {
     if (excluded.has(key)) throw new Error(`Forge evidence ${key} is excluded by the current source policy. Remove its passage from the draft/history before sending.`)
     const item = await store.source(input.root, key)
+    const dependency = dependencies.get(key)
+    if (dependency?.detail.collection && (!item || item.hash !== dependency.hash || item.text !== dependency.text
+      || JSON.stringify(item.detail) !== JSON.stringify(dependency.detail))) throw new Error("Forge derived evidence changed or was removed")
     if (!item && await store.retired(input.root, key)) throw new Error(`Forge evidence ${key} was removed or replaced. Remove its captured passage from the draft/history before sending.`)
     if (item?.detail.session && item.detail.session !== (input.session ?? "")) throw new Error(`Forge evidence ${key} is not available in this session.`)
     if (!item?.detail.collection) continue
     required = true
     await approvals.get(input.root)?.(await library.get(item.detail.collection, input.session), input.session ?? "", [provider])
-    if (!body.includes(item.text) || !(await library.fresh(item, input.session ?? "", provider))) {
+    if ((!dependency && !body.includes(item.text)) || !(await library.fresh(item, input.session ?? "", provider))) {
       throw new Error(`Forge evidence ${key} is stale or not approved for this session/provider. Refresh the collection and review sharing before sending.`)
     }
   }
@@ -256,6 +266,10 @@ export async function compactor(root: string, session: string) {
     await guard.run(() => summarize(root, session, summary)).catch((err) => log.warn("summary provenance unavailable", { error: String(err) }))
   }
 }
-export function transport(fetcher: typeof globalThis.fetch) {
+export function transport(fetcher: typeof globalThis.fetch): typeof globalThis.fetch
+export function transport(fetcher: Fetch): Fetch
+export function transport(fetcher: Fetch) {
+  // Known adapters call back here at the final HTTP hop after rewriting the URL.
+  if (route(fetcher)) return fetcher
   return context.getStore()?.fetch(fetcher) ?? fetcher
 }

@@ -8,6 +8,8 @@ import { setTimeout as sleep } from "node:timers/promises"
 import { createServer } from "http"
 import { refreshCodexAuth } from "@/kilocode/provider/codex-refresh" // kilocode_change
 import { OpenAIWebSocketPool } from "./ws-pool"
+import { codex as forgeCodex } from "@/kilocode/forge/routing" // kilocode_change
+import { transport as forgeTransport } from "@/kilocode/forge/trace" // kilocode_change
 
 const log = Log.create({ service: "plugin.codex" }) // kilocode_change
 
@@ -467,7 +469,7 @@ export async function CodexAuthPlugin(input: PluginInput, options: CodexAuthPlug
             }>
           | undefined
 
-        return {
+        return forgeCodex({ // kilocode_change
           apiKey: OAUTH_DUMMY_KEY,
           async fetch(requestInput: RequestInfo | URL, init?: RequestInit) {
             if (init?.headers) {
@@ -484,7 +486,7 @@ export async function CodexAuthPlugin(input: PluginInput, options: CodexAuthPlug
 
             const currentAuth = await getAuth()
             if (currentAuth.type !== "oauth")
-              return websocketFetch ? websocketFetch(requestInput, init) : fetch(requestInput, init)
+              return forgeTransport(websocketFetch ?? fetch)(requestInput, init) // kilocode_change
 
             const authWithAccount = currentAuth as typeof currentAuth & { accountId?: string }
 
@@ -549,10 +551,10 @@ export async function CodexAuthPlugin(input: PluginInput, options: CodexAuthPlug
               body: init?.body,
               headers,
             }
-            if (websocketFetch && parsed.pathname.endsWith("/responses")) return websocketFetch(url, requestInit)
-            return fetch(url, OpenAIWebSocketPool.withoutInternalHeaders(requestInit))
+            if (websocketFetch && parsed.pathname.endsWith("/responses")) return forgeTransport(websocketFetch)(url, requestInit) // kilocode_change
+            return forgeTransport(fetch)(url, OpenAIWebSocketPool.withoutInternalHeaders(requestInit)) // kilocode_change
           },
-        }
+        }, codexApiEndpoint, issuer, !!websocketFetch) // kilocode_change
       },
       methods: [
         {

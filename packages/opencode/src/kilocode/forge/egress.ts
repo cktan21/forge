@@ -1,4 +1,5 @@
 import type { Destination } from "@kilocode/forge/schema"
+import type { Fetch } from "./routing"
 
 // Only the runtime fetch present at module initialization can enforce Request.redirect.
 // Provider-defined functions can rewrite destinations or ignore that policy.
@@ -6,7 +7,7 @@ const native = globalThis.fetch
 
 export function outbound(
   destination: Destination | undefined,
-  fetcher: typeof globalThis.fetch,
+  fetcher: Fetch,
   input: RequestInfo | URL,
   init?: RequestInit,
 ) {

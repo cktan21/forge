@@ -14,6 +14,7 @@ import { Env } from "@/env"
 import { Plugin } from "@/plugin"
 import { testEffect } from "../lib/effect"
 import { reconcile } from "@kilocode/forge/model-accounting"
+import { oauth } from "./fixture/forge-oauth"
 
 async function fixture(retry = false) {
   const received: Array<{ path: string; body: string; header: string | null }> = []
@@ -125,6 +126,43 @@ test("custom fetch cannot rewrite a protected destination but ordinary requests 
   expect(f.leaked).toEqual(["ordinary"])
 })
 
+test.each([false, true])("built-in OAuth captures the final HTTP hop (registered=%s)", async (registered) => {
+  await using f = await fixture()
+  const adapter = await oauth(new URL("/accepted", f.server.url).href)
+  const trace = registered ? f.trace : (await start({ ...f.input, messages: ["ordinary"] }))!
+  const body = registered ? f.body : "ordinary"
+  const response = await trace.run(() => transport(adapter.fetch)("https://api.openai.com/v1/responses", {
+    method: "POST", body, headers: { "x-probe": "original" },
+  }))
+  expect(response.status).toBe(200)
+  expect(f.received).toEqual([{ path: "/accepted", body, header: "original" }])
+  expect(f.leaked).toEqual([])
+  const manifest = await f.storage.request(f.input.root, "", trace.id)
+  expect(manifest?.attempts).toHaveLength(1)
+  expect(manifest?.attempts?.at(0)?.status).toBe(200)
+})
+
+test("built-in OAuth cannot send registered evidence to an unreviewed final origin", async () => {
+  await using f = await fixture()
+  const adapter = await oauth(new URL("/responses", f.other.url).href)
+  await expect(f.trace.run(() => transport(adapter.fetch)("https://api.openai.com/v1/responses", {
+    method: "POST", body: f.body,
+  }))).rejects.toThrow("outside")
+  expect(f.received).toEqual([])
+  expect(f.leaked).toEqual([])
+  expect((await f.storage.request(f.input.root, "", f.trace.id))?.attempts?.at(0)?.state).toBe("blocked")
+})
+
+test("built-in OAuth retains redirect rejection at the final native HTTP hop", async () => {
+  await using f = await fixture()
+  const adapter = await oauth(new URL("/redirect/307", f.server.url).href)
+  await expect(f.trace.run(() => transport(adapter.fetch)("https://api.openai.com/v1/responses", {
+    method: "POST", body: f.body, redirect: "follow",
+  }))).rejects.toThrow()
+  expect(f.received.map((item) => item.path)).toEqual(["/redirect/307"])
+  expect(f.leaked).toEqual([])
+})
+
 test.each(["proxy", "unix", "tls", "connect", "dispatcher", "agent", "host"] as const)("rejects request-specific %s transport overrides", async (key) => {
   await using f = await fixture()
   const init = { method: "POST", body: f.body, ...(key === "host" ? { headers: { Host: "other.example" } } : { [key]: key === "tls" ? { rejectUnauthorized: false } : f.other.url.href }) }
@@ -217,3 +255,28 @@ for (const allowed of [true, false]) {
     })
   }), { config: { enabled_providers: ["probe"] } })
 }
+
+test("derived investigation summaries inherit source sharing and reviewed-origin restrictions", async () => {
+  await using f = await fixture()
+  const sources = (await f.storage.knowledge(f.input.root)).filter((item) => item.method === "collection-section")
+  const input = { ...f.input, purpose: "investigate", messages: ["A concise derived summary without raw passages or textual source markers."], dependencies: sources }
+  const trace = (await start(input))!
+  await expect(trace.fetch(fetch)(f.other.url, { method: "POST", body: JSON.stringify(input.messages) })).rejects.toThrow("outside")
+  expect(f.leaked).toEqual([])
+  expect(f.received).toEqual([])
+  const approved = (await start(input))!
+  expect((await approved.fetch(fetch)(f.server.url, { method: "POST", body: JSON.stringify(input.messages) })).status).toBe(200)
+  const policy = await f.storage.policy(f.input.root)
+  await f.storage.policySave(f.input.root, { ...policy, version: "revoked", exclude: sources.map((item) => item.id) })
+  await expect(start(input)).rejects.toThrow("excluded")
+})
+
+test("a final investigation dependency check can block transmission after capture", async () => {
+  await using f = await fixture()
+  let valid = true
+  const trace = (await start({ ...f.input, check: async () => { if (!valid) throw new Error("Evidence changed before transmission") } }))!
+  valid = false
+  await expect(trace.fetch(fetch)(f.server.url, { method: "POST", body: f.body })).rejects.toThrow("Evidence changed")
+  expect(f.received).toEqual([])
+  expect(f.leaked).toEqual([])
+})

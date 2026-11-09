@@ -7,6 +7,7 @@ import { SessionV1 } from "@opencode-ai/core/v1/session"
 import os from "os"
 import { KiloSessionPrompt } from "@/kilocode/session/prompt" // kilocode_change
 import { KiloAttachment } from "@/kilocode/session/attachment" // kilocode_change
+import * as ForgeHandoff from "@/kilocode/forge/handoff" // kilocode_change
 import { unavailable } from "@/kilocode/provider/catalog-recovery" // kilocode_change
 import { BoardContext } from "@/kilocode/board/context" // kilocode_change
 import { SKILL_SHELL_DISABLED, SKILL_SHELL_UNTRUSTED } from "@/kilocode/skills/display" // kilocode_change
@@ -1402,6 +1403,7 @@ export const layer = Layer.effect(
 
       // kilocode_change - kilo normalizes images inside resolvePart, so there is no separate normalization pass here (unlike upstream)
       const parts = resolvedParts
+      yield* ForgeHandoff.admit({ session: input.sessionID, model: info.model, expected: input.parts, parts }).pipe(Effect.orDie) // kilocode_change
 
       const parsed = decodeMessageInfo(info, { errors: "all", propertyOrder: "original" })
       if (Exit.isFailure(parsed)) {

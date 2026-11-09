@@ -12,11 +12,12 @@ import { Bus } from "@/bus"
 import { Git } from "@/git"
 import { EffectBridge } from "@/effect/bridge"
 import { InstanceState } from "@/effect/instance-state"
-import { documents, database } from "./sources"
+import { documents, documentAccess, database } from "./sources"
 import * as Trace from "./trace"
 import { extract } from "./extract"
 import { recall } from "./memory"
-import { authorize } from "./access"
+import { authorize, permit } from "./access"
+import { turn, write } from "./investigator"
 import { destination } from "./destination"
 import { Env } from "@/env"
 import { Changed } from "./events"
@@ -69,6 +70,9 @@ export const layer = Layer.effect(Service, Effect.gen(function* () {
         readiness: () => readiness(peek(instance.directory)),
         memory: (query, session, signal) => bridge.promise(recall(query, session, signal)),
         authorize: access,
+        permit: (input) => bridge.promise(permit(input)),
+        turn: (input) => bridge.promise(turn(root, input)),
+        write: (input) => bridge.promise(write(root, input)),
         embeddings: {
           configuration: () => bridge.promise(env.all()).then(configuration),
           authorize: (item, session, endpoint) => bridge.promise(authorize(item, session, [], endpoint)),
@@ -208,6 +212,7 @@ export const layer = Layer.effect(Service, Effect.gen(function* () {
           })
         })),
         docs: (input) => bridge.promise(documents(input, storage, root)),
+        document: (item, signal) => bridge.promise(documentAccess(item, signal)),
         database: (cfg, signal) => bridge.promise(database(cfg, signal)),
       })
       engines.set(root, value)
