@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { Database } from "bun:sqlite"
-import { mkdtemp, mkdir, writeFile, rm, symlink, chmod } from "node:fs/promises"
+import { mkdtemp, mkdir, writeFile, rm, symlink, chmod, rename } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { scan, fresh } from "../src/catalog"
@@ -30,6 +30,70 @@ async function setup() {
 }
 
 describe("repository understanding", () => {
+  test("warm batches read only changed files and match cold create, edit, rename and delete results", async () => {
+    const fixture = await setup()
+    try {
+      const cfg = await config(fixture.root)
+      let previous = await scan({ root: fixture.root, cfg })
+      const batches = [
+        { paths: ["src/queue.ts"], run: () => writeFile(path.join(fixture.root, "src/queue.ts"), 'import { extra } from "./extra"\nexport function next() { return extra() }\n') },
+        { paths: ["src/extra.ts"], run: () => writeFile(path.join(fixture.root, "src/extra.ts"), "export function extra() { return 2 }\n") },
+        { paths: ["src/extra.ts", "src/renamed.ts"], run: () => rename(path.join(fixture.root, "src/extra.ts"), path.join(fixture.root, "src/renamed.ts")) },
+        { paths: ["src/renamed.ts"], run: () => rm(path.join(fixture.root, "src/renamed.ts")) },
+        { paths: ["tests"], run: () => rm(path.join(fixture.root, "tests"), { recursive: true }) },
+      ]
+      for (const batch of batches) {
+        await batch.run()
+        const reads: string[] = []
+        const parses: string[] = []
+        const visits: string[] = []
+        const delta = await scan({ root: fixture.root, cfg, previous, changed: batch.paths, read: (file) => reads.push(file.uri), parsed: (file) => parses.push(file.uri), visited: (uri) => visits.push(uri) })
+        const cold = await scan({ root: fixture.root, cfg })
+        expect(reads.every((uri) => batch.paths.includes(uri))).toBe(true)
+        expect(reads.length).toBeLessThanOrEqual(1)
+        expect(parses).toEqual(reads)
+        expect(visits).not.toContain("README.md")
+        expect(delta.generation).toBe(cold.generation)
+        expect(delta.files).toBe(cold.files)
+        expect([...delta.relations].sort((a, b) => a.id.localeCompare(b.id))).toEqual([...cold.relations].sort((a, b) => a.id.localeCompare(b.id)))
+        await fixture.catalog.replace(delta)
+        const results = await fixture.catalog.search(delta.root, "extra next patient")
+        await fixture.catalog.replace(cold)
+        expect((await fixture.catalog.search(cold.root, "extra next patient")).map((item) => item.source.id)).toEqual(results.map((item) => item.source.id))
+        previous = delta
+      }
+    } finally { await fixture.close() }
+  })
+
+  test("delta state falls back for policy changes, limits, legacy or corrupt extraction and missed events", async () => {
+    const fixture = await setup()
+    try {
+      const cfg = await config(fixture.root)
+      const previous = await scan({ root: fixture.root, cfg })
+      await writeFile(path.join(fixture.root, ".gitignore"), "src/\nignored.ts\n")
+      const changed = await scan({ root: fixture.root, cfg, previous, changed: [".gitignore"] })
+      expect(changed.sources.some((item) => item.uri === "src/queue.ts")).toBe(false)
+      expect(changed.generation).toBe((await scan({ root: fixture.root, cfg })).generation)
+      await writeFile(path.join(fixture.root, ".gitignore"), "ignored.ts\n")
+      for (const prior of [
+        { ...previous, partial: true },
+        { ...previous, relations: [] },
+        { ...previous, sources: previous.sources.map((item) => item.uri === "." ? { ...item, detail: {} } : item) },
+      ]) {
+        const reads: string[] = []
+        const after = await scan({ root: fixture.root, cfg, previous: prior, changed: [], read: (file) => reads.push(file.uri) })
+        expect(reads).toContain("src/queue.ts")
+        expect(after.generation).toBe(previous.generation)
+      }
+      const limited = await scan({ root: fixture.root, cfg: { ...cfg, files: 1 }, previous, changed: [] })
+      expect(limited.partial).toBe(true)
+      expect(limited.files).toBe(1)
+      await writeFile(path.join(fixture.root, "src/queue.ts"), "export function missed() { return 2 }")
+      const reconciled = await scan({ root: fixture.root, cfg, previous })
+      expect(reconciled.sources.some((item) => item.label === "missed")).toBe(true)
+    } finally { await fixture.close() }
+  })
+
   test("extracts actual short symbols, imports, tests, docs and lockfile versions", async () => {
     const fixture = await setup()
     try {
@@ -45,6 +109,35 @@ describe("repository understanding", () => {
       const matches = await fixture.catalog.search(snapshot.root, "patient")
       expect(matches.some((match) => match.source.uri === "README.md")).toBe(true)
       expect(await fixture.catalog.search("another-worktree", "patient")).toEqual([])
+    } finally { await fixture.close() }
+  })
+
+  test("monorepo imports use owning dependencies, scoped lock versions, aliases and explicit package exports", async () => {
+    const fixture = await setup()
+    try {
+      for (const name of ["a", "b"]) {
+        await mkdir(path.join(fixture.root, `packages/${name}/src`), { recursive: true })
+        await writeFile(path.join(fixture.root, `packages/${name}/package.json`), JSON.stringify({ name: `@repo/${name}`, exports: { ".": "./src/index.ts" }, dependencies: { redis: name === "a" ? "^4.0.0" : "^5.0.0" } }))
+        await writeFile(path.join(fixture.root, `packages/${name}/src/index.ts`), `import redis from "redis"\nimport { local } from "@/local"\nexport { local }\n${name === "a" ? 'import { local as other } from "@repo/b"' : ""}`)
+        await writeFile(path.join(fixture.root, `packages/${name}/src/local.ts`), "export const local = true")
+        await writeFile(path.join(fixture.root, `packages/${name}/tsconfig.json`), '{"compilerOptions":{"baseUrl":"./src","paths":{"@/*":["*"]}}}')
+      }
+      await writeFile(path.join(fixture.root, "package-lock.json"), JSON.stringify({ packages: {
+        "node_modules/redis": { version: "4.7.0" },
+        "packages/b/node_modules/redis": { version: "5.1.0" },
+      } }))
+      const snapshot = await scan({ root: fixture.root, cfg: await config(fixture.root) })
+      for (const name of ["a", "b"]) {
+        const file = snapshot.sources.find((item) => item.uri === `packages/${name}/src/index.ts` && item.method === "file")!
+        const dep = snapshot.sources.find((item) => item.kind === "dependency" && item.detail.manifest === `packages/${name}/package.json`)!
+        expect(dep.detail.resolved).toBe(name === "a" ? "4.7.0" : "5.1.0")
+        expect(snapshot.relations.some((edge) => edge.from === file.id && edge.to === dep.id && edge.kind === "imports-dependency")).toBe(true)
+        const local = snapshot.sources.find((item) => item.uri === `packages/${name}/src/local.ts` && item.method === "file")!
+        expect(snapshot.relations.some((edge) => edge.from === file.id && edge.to === local.id && edge.kind === "imports")).toBe(true)
+      }
+      const a = snapshot.sources.find((item) => item.uri === "packages/a/src/index.ts" && item.method === "file")!
+      const b = snapshot.sources.find((item) => item.uri === "packages/b/src/index.ts" && item.method === "file")!
+      expect(snapshot.relations.some((edge) => edge.from === a.id && edge.to === b.id && edge.kind === "imports")).toBe(true)
     } finally { await fixture.close() }
   })
 

@@ -10,21 +10,16 @@ import { hash, id, inside, message } from "./util"
 import { checkpoint } from "./cooperate"
 import { generation as version } from "./generation"
 import { extraction } from "./extraction"
+import { blocked, supported, secret, kind } from "./repository"
 
-const blocked = new Set([".git", "node_modules", ".venv", "venv", "__pycache__", ".next", "dist", "build", "target", "vendor", ".turbo", ".cache", ".artifacts", ".trae"])
-const supported = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".md", ".mdx", ".rst", ".txt", ".json", ".jsonc", ".toml", ".yaml", ".yml", ".sql", ".prisma", ".lock"])
-const secret = /(?:^|\/)(?:\.env(?:\..*)?|.*\.(?:pem|key|p12|pfx)|credentials(?:\..*)?|secrets?(?:\..*)?)$/i
-
-function kind(file: string): Source["kind"] {
-  if (/(?:^|\/)(?:AGENTS|CLAUDE)\.md$/.test(file)) return "instruction"
-  if (/(?:^|\/)(?:test|tests|__tests__)\/|(?:[._-](?:test|spec)\.)|(?:^|\/)test_/.test(file)) return "test"
-  if (/\.(mdx?|rst|txt)$/.test(file)) return "document"
-  if (/\.(sql|prisma)$/.test(file)) return "schema"
-  if (/\.(jsonc?|toml|ya?ml|lock)$/.test(file)) return "configuration"
-  return "code"
-}
-
-export async function scan(input: { root: string; cfg: Settings; previous?: Snapshot; revision?: string; signal?: AbortSignal; progress?: (files: number) => void; read?: (file: Source) => void }): Promise<Snapshot> {
+export async function scan(input: {
+  root: string; cfg: Settings; previous?: Snapshot; revision?: string; signal?: AbortSignal
+  changed?: readonly string[]
+  progress?: (files: number) => void
+  read?: (file: Source) => void
+  parsed?: (file: Source) => void
+  visited?: (uri: string) => void
+}): Promise<Snapshot> {
   const pause = checkpoint(input.signal)
   const root = await realpath(input.root)
   const cfg = input.cfg
@@ -35,6 +30,15 @@ export async function scan(input: { root: string; cfg: Settings; previous?: Snap
   const saved = input.previous?.root === root ? input.previous : undefined
   const cached = await extraction(saved?.sources ?? [], saved?.relations ?? [], input.signal)
   const previous = new Map(saved?.sources.filter((item) => item.method === "file").map((item) => [item.uri, item]))
+  // Bump the catalog version when extraction or resolution semantics change.
+  const stamp = hash(JSON.stringify(["catalog-v2", cfg.exclude, cfg.files, cfg.bytes]))
+  const delta = input.changed != null && saved && !saved.partial && !saved.warnings.length
+    && saved.sources.find((item) => item.method === "directory" && item.uri === ".")?.detail.catalog === stamp
+    && [...previous.values()].every((item) => item.status === "current" && cached.get(item.id)?.stamp === item.detail.extraction)
+    && input.changed.every((uri) => uri && !path.isAbsolute(uri) && !uri.includes("\\") && !uri.split("/").includes("..")
+      && !/(?:^|\/)(?:\.gitignore|\.kilocodeignore|forge\.jsonc|tsconfig[^/]*\.json|package\.json|pyproject\.toml|[^/]*lock[^/]*)$/.test(uri))
+      ? input.changed : undefined
+  const affected = (uri: string) => delta == null || delta.some((item) => item === uri || item.startsWith(`${uri}/`) || uri.startsWith(`${item}/`))
   const unavailable = new Set<string>()
   const parsed = parser()
   const files = new Map<string, Source>()
@@ -48,10 +52,33 @@ export async function scan(input: { root: string; cfg: Settings; previous?: Snap
     partial = true
   }
 
+  function reuse(file: Source) {
+    const group = cached.get(file.id)!
+    files.set(file.uri, file)
+    sources.push(file, ...group.sources)
+    relations.push(relation(id(path.posix.dirname(file.uri), "directory"), file.id, "contains", []), ...group.relations)
+    if (file.detail.imports) for (const value of JSON.parse(file.detail.imports) as Array<{ specifier: string; evidence: string; python: boolean }>) pending.push({ file, ...value })
+  }
+
   async function visit(dir: string, rules: Array<{ base: string; matcher: ReturnType<typeof ignore> }>) {
     input.signal?.throwIfAborted()
     const relative = path.relative(root, dir).split(path.sep).join("/")
-    const directory = source(relative || ".", "", "directory", { method: "directory", label: relative ? path.basename(dir) : path.basename(root) })
+    if (relative && !affected(relative) && saved?.sources.some((item) => item.method === "directory" && item.uri === relative)
+      && total + saved.sources.filter((item) => item.method === "file" && item.uri.startsWith(`${relative}/`)).length <= cfg.files) {
+      for (const item of saved.sources) {
+        await pause()
+        if (item.uri !== relative && !item.uri.startsWith(`${relative}/`)) continue
+        if (item.method === "directory") {
+          sources.push(item)
+          relations.push(relation(id(path.posix.dirname(item.uri), "directory"), item.id, "contains", []))
+        }
+        if (item.method === "file") { total++; reuse(item) }
+      }
+      input.progress?.(total)
+      return
+    }
+    input.visited?.(relative || ".")
+    const directory = source(relative || ".", "", "directory", { method: "directory", label: relative ? path.basename(dir) : path.basename(root), detail: relative ? {} : { catalog: stamp } })
     sources.push(directory)
     if (relative) relations.push(relation(id(path.posix.dirname(relative) === "." ? "." : path.posix.dirname(relative), "directory"), directory.id, "contains", []))
     const local = ignore()
@@ -92,6 +119,9 @@ export async function scan(input: { root: string; cfg: Settings; previous?: Snap
       if (!entry.isFile() || !supported.has(path.extname(rel))) continue
       total++
       input.progress?.(total)
+      const prior = previous.get(rel)
+      if (prior && !affected(rel)) { reuse(prior); continue }
+      input.visited?.(rel)
       const resolved = await realpath(absolute).catch((err) => { missing(rel, message(err)); return undefined })
       if (!resolved || !inside(root, resolved) || resolved !== absolute) continue
       const info = await stat(resolved).catch((err) => { missing(rel, message(err)); return undefined })
@@ -104,7 +134,6 @@ export async function scan(input: { root: string; cfg: Settings; previous?: Snap
       input.read?.(file)
       files.set(rel, file)
       relations.push(relation(directory.id, file.id, "contains", []))
-      const prior = previous.get(rel)
       const group = prior && cached.get(prior.id)
       // File bytes and a versioned extraction stamp must agree before reuse.
       // Unstamped legacy snapshots are reparsed once, without trusting cached imports.
@@ -116,6 +145,7 @@ export async function scan(input: { root: string; cfg: Settings; previous?: Snap
         if (imports) for (const value of JSON.parse(imports) as Array<{ specifier: string; evidence: string; python: boolean }>) pending.push({ file: prior, ...value })
         continue
       }
+      input.parsed?.(file)
       const result = await parsed.parse(file).catch((err) => {
         missing(rel, `extraction unavailable: ${message(err)}`)
         return { sources: [], relations: [], imports: [], warnings: [] }
@@ -131,12 +161,27 @@ export async function scan(input: { root: string; cfg: Settings; previous?: Snap
 
   try { await visit(root, []) } finally { parsed.dispose() }
 
-  const aliases: Array<{ base: string; pattern: string; targets: string[] }> = []
+  const aliases: Array<{ owner: string; base: string; pattern: string; targets: string[] }> = []
+  const packages = new Map<string, Array<{ file: Source; value: { name?: string; exports?: unknown; main?: string; module?: string } }>>()
   for (const file of files.values()) {
     await pause()
+    if (path.posix.basename(file.uri) === "package.json") {
+      const value = json(file.text) as { name?: string; exports?: unknown; main?: string; module?: string } | null
+      if (value?.name) packages.set(value.name, [...packages.get(value.name) ?? [], { file, value }])
+    }
     if (!file.uri.endsWith("tsconfig.json")) continue
     const cfg = json(file.text) as { compilerOptions?: { baseUrl?: string; paths?: Record<string, string[]> } }
-    for (const [pattern, targets] of Object.entries(cfg.compilerOptions?.paths ?? {})) aliases.push({ base: path.posix.join(path.posix.dirname(file.uri), cfg.compilerOptions?.baseUrl ?? "."), pattern, targets })
+    for (const [pattern, targets] of Object.entries(cfg?.compilerOptions?.paths ?? {})) aliases.push({ owner: path.posix.dirname(file.uri), base: path.posix.join(path.posix.dirname(file.uri), cfg.compilerOptions?.baseUrl ?? "."), pattern, targets })
+  }
+  aliases.sort((a, b) => b.owner.length - a.owner.length)
+  function target(value: unknown): string | undefined {
+    if (typeof value === "string") return value
+    if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
+    const fields = value as Record<string, unknown>
+    for (const key of ["source", "import", "default", "require", "types"]) {
+      const found = target(fields[key])
+      if (found) return found
+    }
   }
   function resolve(file: Source, specifier: string, python: boolean) {
     const choices: string[] = []
@@ -147,12 +192,28 @@ export async function scan(input: { root: string; cfg: Settings; previous?: Snap
       if (!dots) choices.push(path.posix.join("src", specifier.replaceAll(".", "/")))
     }
     if (!python && specifier.startsWith(".")) choices.push(path.posix.join(path.posix.dirname(file.uri), specifier))
+    const owner = aliases.find((alias) => alias.owner === "." || file.uri.startsWith(`${alias.owner}/`))?.owner
     if (!python) for (const alias of aliases) {
-      if (!file.uri.startsWith(alias.base === "." ? "" : `${alias.base}/`)) continue
+      if (alias.owner !== owner) continue
       const [prefix, suffix = ""] = alias.pattern.split("*")
+      if (!alias.pattern.includes("*") && specifier !== alias.pattern) continue
       if (!specifier.startsWith(prefix!) || !specifier.endsWith(suffix)) continue
       const middle = specifier.slice(prefix!.length, suffix ? -suffix.length : undefined)
       for (const target of alias.targets) choices.push(path.posix.join(alias.base, target.replace("*", middle)))
+    }
+    if (!python && !specifier.startsWith(".")) {
+      const name = specifier.startsWith("@") ? specifier.split("/").slice(0, 2).join("/") : specifier.split("/").at(0)!
+      const matches = packages.get(name) ?? []
+      const pkg = matches.length === 1 ? matches.at(0) : undefined
+      if (pkg) {
+        const subpath = specifier === name ? "." : `.${specifier.slice(name.length)}`
+        const exports = pkg.value.exports
+        const selected = exports && typeof exports === "object" && !Array.isArray(exports)
+          ? (exports as Record<string, unknown>)[subpath] ?? (subpath === "." ? exports : undefined)
+          : subpath === "." ? exports : undefined
+        const entry = target(selected) ?? (exports == null ? subpath === "." ? pkg.value.module ?? pkg.value.main ?? "./index" : subpath : undefined)
+        if (entry?.startsWith("./") && !entry.split("/").includes("..")) choices.push(path.posix.join(path.posix.dirname(pkg.file.uri), entry))
+      }
     }
     for (const value of choices) {
       for (const name of [value, `${value}.ts`, `${value}.tsx`, `${value}.js`, `${value}.py`, `${value}/index.ts`, `${value}/index.tsx`, `${value}/index.js`, `${value}/__init__.py`, value.replace(/\.js$/, ".ts")]) {
@@ -164,14 +225,16 @@ export async function scan(input: { root: string; cfg: Settings; previous?: Snap
   const dependencies = new Map<string, Source>()
   for (const item of sources) {
     await pause()
-    if (item.kind === "dependency" && !dependencies.has(item.label)) dependencies.set(item.label, item)
+    if (item.kind === "dependency") dependencies.set(`${path.posix.dirname(item.detail.manifest ?? "")}:${item.label}`, item)
   }
   for (const item of pending) {
     await pause()
     const target = resolve(item.file, item.specifier, item.python)
     if (target) { relations.push(relation(item.file.id, target.id, item.file.kind === "test" ? "test-imports" : "imports", [item.evidence], `Resolved ${item.specifier}`)); continue }
     const name = item.python ? item.specifier.split(".")[0] : item.specifier.startsWith("@") ? item.specifier.split("/").slice(0, 2).join("/") : item.specifier.split("/")[0]
-    const dep = dependencies.get(name ?? "")
+    let owner = path.posix.dirname(item.file.uri)
+    while (owner !== "." && !files.has(path.posix.join(owner, item.python ? "pyproject.toml" : "package.json"))) owner = path.posix.dirname(owner)
+    const dep = dependencies.get(`${owner}:${name ?? ""}`)
     if (dep) relations.push(relation(item.file.id, dep.id, "imports-dependency", [item.evidence], item.specifier))
   }
   for (const doc of files.values()) {
@@ -220,6 +283,13 @@ export async function scan(input: { root: string; cfg: Settings; previous?: Snap
 
 async function resolveVersions(sources: Source[], files: Map<string, Source>, warnings: string[], signal?: AbortSignal) {
   const pause = checkpoint(signal)
+  const locks = [...files.values()].filter((file) => ["package-lock.json", "bun.lock", "uv.lock", "poetry.lock"].includes(path.posix.basename(file.uri)))
+    .sort((a, b) => path.posix.dirname(b.uri).length - path.posix.dirname(a.uri).length || a.uri.localeCompare(b.uri))
+  const nearest = (item: Source) => locks.find((file) => {
+    const base = path.posix.dirname(file.uri)
+    return (item.detail.ecosystem === "npm" ? /(?:package-lock\.json|bun\.lock)$/.test(file.uri) : /(?:uv|poetry)\.lock$/.test(file.uri))
+      && (base === "." || item.detail.manifest?.startsWith(`${base}/`))
+  })?.id
   for (let index = 0; index < sources.length; index++) {
     await pause()
     const item = sources.at(index)!
@@ -227,7 +297,7 @@ async function resolveVersions(sources: Source[], files: Map<string, Source>, wa
     const detail = { ...Object.fromEntries(Object.entries(item.detail).filter(([key]) => !["lockfile", "versionStatus"].includes(key))), resolved: "unknown" }
     sources[index] = { ...item, detail, evidence: files.get(item.detail.manifest ?? "") ? [files.get(item.detail.manifest ?? "")!.id] : [] }
   }
-  for (const file of files.values()) {
+  for (const file of locks) {
     await pause()
     const name = path.posix.basename(file.uri)
     if (!["package-lock.json", "bun.lock", "uv.lock", "poetry.lock"].includes(name)) continue
@@ -235,26 +305,41 @@ async function resolveVersions(sources: Source[], files: Map<string, Source>, wa
       const errors: ParseError[] = []
       const lock = (name.endsWith(".json") || name === "bun.lock" ? json(file.text, errors, { allowTrailingComma: true }) : toml(file.text)) as { packages?: Record<string, { version?: string } | unknown[]>; package?: Array<{ name: string; version: string }> }
       if (errors.length || !lock || typeof lock !== "object") throw new Error("Invalid lockfile")
-      const versions = new Map<string, string>()
+      const versions = new Map<string, Set<string>>()
+      const locations = new Map<string, string>()
+      const add = (name: string, version: string) => versions.set(name, new Set([...versions.get(name) ?? [], version]))
       for (const [key, value] of Object.entries(lock.packages ?? {})) {
         await pause()
         if (Array.isArray(value)) {
           const spec = String(value.at(0))
           const split = spec.lastIndexOf("@")
-          if (split > 0) versions.set(spec.slice(0, split), spec.slice(split + 1))
+          if (split > 0) add(spec.slice(0, split), spec.slice(split + 1))
           continue
         }
-        if (value.version) versions.set(key.replace(/^.*node_modules\//, ""), value.version)
+        if (value.version) {
+          add(key.replace(/^.*node_modules\//, ""), value.version)
+          locations.set(key, value.version)
+        }
       }
-      for (const pkg of lock.package ?? []) versions.set(pkg.name, pkg.version)
+      for (const pkg of lock.package ?? []) add(pkg.name, pkg.version)
       for (let index = 0; index < sources.length; index++) {
         await pause()
         const item = sources.at(index)!
         if (item.kind !== "dependency") continue
         const manifest = item.detail.manifest ?? ""
-        if (path.posix.dirname(file.uri) !== path.posix.dirname(manifest)) continue
-        const version = versions.get(item.label)
+        if (nearest(item) !== file.id) continue
+        const candidates = versions.get(item.label)
+        const version = (() => {
+          if (name !== "package-lock.json") return candidates?.size === 1 ? [...candidates].at(0) : candidates?.has(item.detail.declared ?? "") ? item.detail.declared : undefined
+          let dir = path.posix.relative(path.posix.dirname(file.uri), path.posix.dirname(manifest)) || "."
+          while (true) {
+            const found = locations.get(path.posix.join(dir, "node_modules", item.label))
+            if (found || dir === ".") return found
+            dir = path.posix.dirname(dir)
+          }
+        })()
         if (version) sources[index] = { ...item, detail: { ...item.detail, resolved: version, lockfile: file.uri, versionStatus: "lockfile; installed state unverified" }, evidence: [...new Set([...item.evidence, file.id])] }
+        if (!version && candidates && candidates.size > 1) sources[index] = { ...item, detail: { ...item.detail, versionStatus: "multiple lockfile versions; owning resolution unknown" } }
       }
     } catch (err) { signal?.throwIfAborted(); warnings.push(`${file.uri}: version resolution failed: ${message(err)}`) }
   }
