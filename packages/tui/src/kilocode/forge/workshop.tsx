@@ -1,14 +1,16 @@
-import { createEffect, createSignal, For, onCleanup, onMount, Show, useContext } from "solid-js"
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, useContext } from "solid-js"
 import { unwrap } from "solid-js/store"
 import { useTerminalDimensions } from "@opentui/solid"
 import type { ScrollBoxRenderable } from "@opentui/core"
 import { createKiloClient } from "@kilocode/sdk/v2"
-import { InvestigationFrame, Investigation, type Observation, type Round } from "@kilocode/forge/investigation"
+import { InvestigationFrame, Investigation, recoverable, type Observation, type Round } from "@kilocode/forge/investigation"
 import { Prepared } from "@kilocode/forge/writing"
 import type { EnhancementModel } from "@kilocode/forge/schema"
 import { decode } from "@kilocode/forge/schema"
+import { diagnostic, EnhancementError, failure as failed } from "@kilocode/forge/enhancement"
 import { reference } from "@kilocode/forge/handoff"
 import { notice, updates } from "@kilocode/forge/updates"
+import { replies, visible } from "@kilocode/forge/clarification"
 import { useSDK } from "../../context/sdk"
 import { useProject } from "../../context/project"
 import { useRoute } from "../../context/route"
@@ -25,11 +27,13 @@ import { attachments } from "./attachment"
 import { prepared, requirements } from "./draft"
 import { attach } from "./handoff"
 import { ForgeTurns } from "./turns"
+import { progress } from "./progress"
+import { operation } from "./operation"
 import { ForgeQuestions } from "./questions"
 import { responses, transcript, type Answer } from "./conversation"
 
 type Props = Parameters<typeof ForgeEnhance>[0]
-type Phase = "input" | "findings" | "questions" | "feedback" | "prompt" | "edit" | "sources" | "model"
+type Phase = "input" | "findings" | "questions" | "retry" | "feedback" | "prompt" | "edit" | "sources" | "model"
 
 export function ForgeWorkshop(props: Props) {
   const sdk = useSDK()
@@ -82,15 +86,21 @@ function Workshop(props: Props) {
   const seed = (draft && (props.text == null || props.text === draft.input) ? requirements(draft) : props.text ?? "").replace(/^\/enhance(?:\s+|$)/, "")
   const selectedModel = useContext(ForgeModel)
   const [model, setModel] = createSignal(selectedModel?.() ?? "")
-  const [original, setOriginal] = createSignal(seed)
+  const [, setOriginal] = createSignal(seed)
   const [input, setInput] = createSignal(seed)
   const [feedback, setFeedback] = createSignal("")
   const [history, setHistory] = createSignal(props.answers ?? "")
+  const [submitted, setSubmitted] = createSignal("")
+  const settled = createMemo(() => replies(history()))
   const [values, setValues] = createSignal<Record<string, Answer>>({})
   const [phase, setPhase] = createSignal<Phase>("input")
   const [record, setRecord] = createSignal<Investigation>()
+  const questions = createMemo(() => visible(record()?.questions ?? [], values()))
   const [journal, setJournal] = createSignal<readonly Round[]>([])
   const [observations, setObservations] = createSignal<readonly Observation[]>([])
+  const [recover, setRecover] = createSignal<Investigation>()
+  const [clock, setClock] = createSignal(Date.now())
+  const [access, setAccess] = createSignal<"verified" | "unknown">("verified")
   const [attempt, setAttempt] = createSignal<string>()
   const [tracing, setTracing] = createSignal(false)
   const [reported, setReported] = createSignal(model())
@@ -99,9 +109,6 @@ function Workshop(props: Props) {
   const [written, setWritten] = createSignal("")
   const [text, setText] = createSignal("")
   const [cursor, setCursor] = createSignal(0)
-  const [busy, setBusy] = createSignal(false)
-  const [status, setStatus] = createSignal("")
-  const [error, setError] = createSignal("")
   const [invalid, setInvalid] = createSignal(false)
   const [choosing, setChoosing] = createSignal(false)
   const [library, setLibrary] = createSignal(false)
@@ -109,13 +116,14 @@ function Workshop(props: Props) {
   const dimensions = useTerminalDimensions()
   const { theme } = useTheme()
   const controller = new AbortController()
-  let pending: AbortController | undefined
   let scroll: ScrollBoxRenderable | undefined
   const clarification = () => record()?.state !== "findings_ready"
     || !record()?.findings.some((item) => item.support !== "contradicted")
   const primary = () => phase() === "prompt" ? "Enter / [a] Use prompt (stage only)"
-    : record()?.state === "needs_input" ? "Enter / [c] Answer questions"
-    : clarification() ? "Enter / [c] Refine request"
+    : recover() ? "Enter / [i] Retry suggestions (saved evidence, model call)"
+    : phase() === "retry" ? "Enter / [i] Retry with saved answers (model calls)"
+    : clarification() && record()?.questions.length ? "Enter / [c] Answer questions"
+    : clarification() ? "Enter / [i] Continue assessment with saved answers (model calls)"
     : selected().length ? "Enter / [w] Write prompt (model call)" : "Enter / Space Select highlighted finding"
   const signature = () => JSON.stringify([record()?.id, selected(), feedback(), history(), values(), model()])
   const same = () => !controller.signal.aborted && !invalid()
@@ -123,6 +131,17 @@ function Workshop(props: Props) {
     && (route.data.type === "session" ? route.data.sessionID : "") === scope.session
     && (!initial || prompt?.current === initial && JSON.stringify(initial.current) === JSON.stringify(draft))
   const current = (signal: AbortSignal) => same() && !signal.aborted
+  const task = operation({
+    signal: controller.signal, valid: same,
+    cancelled: () => setJournal((items) => items.map((item) =>
+      item.state === "model" || item.state === "tools"
+        ? { ...item, state: "cancelled", summary: "Cancelled locally; late work is not accepted." } : item)),
+  })
+  const busy = task.busy
+  const status = task.status
+  const error = task.error
+  const setError = task.setError
+  const run = task.run
 
   async function client() {
     return sdk.url === "http://kilo.internal" && sdk.browser
@@ -134,63 +153,87 @@ function Workshop(props: Props) {
     if (split < 1 || split === model().length - 1) return undefined
     return { providerID: model().slice(0, split), modelID: model().slice(split + 1) }
   }
-  async function run(label: string, action: (signal: AbortSignal) => Promise<void>) {
-    if (busy() || !same()) return
-    const abort = new AbortController()
-    pending = abort
-    setBusy(true)
-    setError("")
-    setStatus(label)
-    try {
-      await action(AbortSignal.any([controller.signal, abort.signal]))
-    } catch (err) {
-      if (current(abort.signal)) setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      if (same() && abort.signal.aborted) setJournal((items) => items.map((item) =>
-        item.state === "model" || item.state === "tools"
-          ? { ...item, state: "cancelled", summary: "Cancelled locally; late work is not accepted." }
-          : item))
-      if (pending === abort) { pending = undefined; setBusy(false) }
-    }
+  function answer(id: string, value: Answer) {
+    setValues((items) => {
+      const next = { ...items, [id]: value }
+      if (JSON.stringify(items[id]) === JSON.stringify(value)) return next
+      const changed = new Set([id])
+      for (const question of record()?.questions ?? []) {
+        if (!question.when || !changed.has(question.when.question)) continue
+        changed.add(question.id)
+        delete next[question.id]
+      }
+      return next
+    })
   }
-  function investigate() {
+  function investigate(resume = false) {
     return run("Understanding the request and inspecting repository evidence", async (signal) => {
       const model = referenceModel()
       if (!model) { setPhase("model"); throw new Error("Choose a provider/model before starting investigation.") }
       if (!input().trim()) throw new Error("Describe the request to investigate.")
-      const answers = Object.keys(values()).length && record()?.questions.length
-        ? transcript([history(), `Clarification responses:\n${responses(record()!.questions, values())}`])
+      const controls = questions().filter((item) => {
+        const answer = values()[item.id]
+        return !!(answer?.option || answer?.comment?.trim() || item.optional && answer?.skipped)
+      })
+      const answers = controls.length
+        ? transcript([history(), `Clarification responses:\n${responses(controls, values())}`])
         : history()
       const api = await client()
       const value = input()
       const previous = ready()
+      const retry = resume ? recover() : undefined
+      if (resume && !retry) throw new Error("No retained investigation is available for conclusion recovery.")
       const key = crypto.randomUUID()
       setReported(`${model.providerID}/${model.modelID}`)
       setAttempt(key)
       setJournal([])
       setObservations([])
+      setRecover(undefined)
+      setClock(Date.now())
+      if (controls.length) {
+        setSubmitted(answers)
+        setPhase("retry")
+      }
       let result: Investigation | undefined
       let failure: unknown
       const response = await api.forge.investigateStream({
         ...scope, key, text: value, answers: answers || undefined, feedback: feedback() || undefined, model,
         previous: previous ? { id: previous.id, revision: previous.revision, session: previous.session } : undefined,
+        resume: retry ? { id: retry.id, revision: retry.revision } : undefined,
       }, { signal, throwOnError: true, sseMaxRetryAttempts: 0, onSseError: (err) => { failure = err } })
-      for await (const value of response.stream) {
+      for await (const event of response.stream) {
         if (!current(signal)) return
-        const frame = decode(InvestigationFrame, value)
-        if (frame.type === "error") throw new Error(frame.message)
+        const frame = decode(InvestigationFrame, event)
+        if (frame.type === "error") {
+          if (["schema", "json", "cutoff"].includes(frame.failure?.code ?? "")) {
+            const saved = await api.forge.investigation({ ...scope, id: key }, { signal, throwOnError: true })
+              .then((value) => decode(Investigation, value.data), () => undefined)
+            if (current(signal) && saved?.id === key && saved.original === value && saved.session === scope.session) {
+              setRecover(saved)
+              setJournal(saved.journal ?? [])
+              setObservations(saved.observations)
+            }
+          }
+          throw new EnhancementError(frame.message, frame.failure ?? failed("transport"))
+        }
         if (frame.type === "result") { result = frame.investigation; break }
         if (frame.journal) setJournal(frame.journal)
         if (frame.observations) setObservations(frame.observations)
-        setStatus(`${frame.stage} (${frame.turns} model turns, ${frame.calls} tool calls)`)
+        setClock(Date.now())
+        const turn = frame.journal?.at(-1)
+        const label = turn ? progress(turn, (frame.observations ?? observations()).flatMap((item) => item.sources)) : frame.stage
+        task.update(`${label}${frame.elapsed == null ? "" : ` (${Math.floor(frame.elapsed / 1000)}s elapsed)`}`)
       }
       if (!current(signal)) return
       if (!result) throw failure ?? new Error("Investigation ended without validated findings. Retry explicitly.")
       if (result.original !== value || result.session !== scope.session) throw new Error("Investigation response belongs to another request")
       setOriginal(value)
       setHistory(answers)
+      setSubmitted("")
       setValues({})
       setRecord(result)
+      setRecover(recoverable(result) ? result : undefined)
+      setAccess("verified")
       setJournal(result.journal ?? [])
       setObservations(result.observations)
       setSelected([])
@@ -210,9 +253,14 @@ function Workshop(props: Props) {
     setPhase(record()?.questions.length ? "questions" : "feedback")
   }
   function proceed() {
+    if (phase() === "retry") { void investigate(!!recover()); return }
     if (phase() === "prompt") { void accept(); return }
     if (phase() === "sources") { setPhase(ready() ? "prompt" : "findings"); return }
-    if (clarification()) { clarify(); return }
+    if (clarification()) {
+      if (!recover() && record()?.questions.length) { clarify(); return }
+      void investigate(!!recover())
+      return
+    }
     if (selected().length) { void write(); return }
     const item = record()?.findings.at(cursor())
     if (!item || item.support === "contradicted") {
@@ -229,10 +277,11 @@ function Workshop(props: Props) {
     if (item && scroll) scroll.scrollBy(item.y - scroll.viewport.y)
   }
   function write() {
-    if (record()?.state === "needs_input") { clarify(); return Promise.resolve() }
+    if (record()?.state === "needs_input" && record()?.questions.length) { clarify(); return Promise.resolve() }
     return run("Writing the implementation prompt from your selected findings", async (signal) => {
+      if (access() !== "verified") throw new Error("Recheck evidence access before writing a prompt.")
       const item = record()
-      if (!item || item.state !== "findings_ready") throw new Error("Resolve the investigation questions before writing.")
+      if (!item || item.state !== "findings_ready") throw new Error("Get valid suggestions before writing a prompt.")
       if (Object.keys(values()).length) throw new Error("Investigate with your pending answers before writing a prompt.")
       const model = referenceModel()
       if (!model || model.providerID !== item.model.providerID || model.modelID !== item.model.modelID) throw new Error("Investigate with the selected model before writing a new prompt.")
@@ -270,6 +319,7 @@ function Workshop(props: Props) {
   }
   function accept() {
     return run("Rechecking evidence before staging the prompt", async (signal) => {
+      if (access() !== "verified") throw new Error("Recheck evidence access before staging a prompt.")
       const item = ready()
       if (!item || !initial || !draft) throw new Error("Open the workshop from a chat composer to stage this prompt.")
       if (signature() !== written()) throw new Error("Your direction or feedback changed. Write an updated prompt before using it.")
@@ -285,19 +335,30 @@ function Workshop(props: Props) {
       dialog.clear()
     })
   }
+  async function revalidate(signal = controller.signal) {
+      const item = ready()
+      const investigation = record()
+      if (attempt() && attempt() !== investigation?.id) await sdk.client.forge.investigation({ ...scope, id: attempt()! }, { signal, throwOnError: true })
+      if (item) await sdk.client.forge.preparedPrompt({ ...scope, session: item.session, id: item.id }, { signal, throwOnError: true })
+      else if (investigation) await sdk.client.forge.investigation({ ...scope, id: investigation.id }, { signal, throwOnError: true })
+      if (current(signal)) setAccess("verified")
+  }
   const refresh = updates({
     signal: controller.signal,
     load: async () => {
-      if (busy() || !same()) return
-      const item = ready()
-      const investigation = record()
-      if (attempt() && attempt() !== investigation?.id) await sdk.client.forge.investigation({ ...scope, id: attempt()! }, { signal: controller.signal, throwOnError: true })
-      if (item) await sdk.client.forge.preparedPrompt({ ...scope, session: item.session, id: item.id }, { signal: controller.signal, throwOnError: true })
-      else if (investigation) await sdk.client.forge.investigation({ ...scope, id: investigation.id }, { signal: controller.signal, throwOnError: true })
+      if (!busy() && same()) await revalidate()
     },
-    error: () => {
-      setRecord(undefined); setReady(undefined); setSelected([]); setText(""); setInput(original()); setPhase("input")
+    error: (err) => {
+      const value = err != null && typeof err === "object" ? err : undefined
+      const failure = diagnostic(value && Reflect.get(value, "failure"))
+      if (err instanceof TypeError || failure?.reason === "network" || failure?.reason === "unavailable") {
+        setAccess("unknown")
+        setError("Evidence access could not be checked. Your input was kept; recheck access before continuing.")
+        return
+      }
+      setRecord(undefined); setReady(undefined); setSelected([]); setText(""); setPhase("input")
       setJournal([]); setObservations([]); setAttempt(undefined); setTracing(false)
+      setRecover(undefined)
       setError("Evidence or access changed. Generated content is unavailable until you investigate again.")
     },
   })
@@ -332,26 +393,38 @@ function Workshop(props: Props) {
     if (same()) return
     setInvalid(true)
     setJournal([]); setObservations([]); setTracing(false)
-    pending?.abort()
+    task.cancel()
   })
-  onCleanup(() => { controller.abort(); pending?.abort(); if (prompt?.current === initial) initial?.focus() })
+  onCleanup(() => { controller.abort(); task.cancel(); if (prompt?.current === initial) initial?.focus() })
   useBindings(() => ({
     enabled: !choosing() && !library(), priority: 2,
     bindings: [
       { key: "ctrl+c", group: "Forge Investigation", desc: "Close without submitting", cmd: () => dialog.clear() },
       { key: "escape", group: "Forge Investigation", desc: "Cancel or go back", cmd: () => {
-        if (busy()) { pending?.abort(); return }
+        if (busy()) { task.cancel(); return }
         if (tracing()) { setTracing(false); return }
         if (phase() === "sources") { setPhase(ready() ? "prompt" : "findings"); return }
         dialog.clear()
       } },
       { key: "ctrl+t", group: "Forge Investigation", desc: "Toggle turn history", cmd: () => setTracing((value) => !value) },
-      ...(!invalid() && (tracing() || busy() || ["findings", "questions", "prompt", "sources"].includes(phase())) ? [
+      ...(!busy() && !tracing() && !invalid() && (recover() || access() === "unknown") ? [
+        { key: "ctrl+r", group: "Forge Investigation", desc: "Recheck access or retry the conclusion", cmd: () => {
+          if (access() === "unknown") { void run("Rechecking evidence access", revalidate); return }
+          void investigate(true)
+        } },
+      ] : []),
+      ...(!invalid() && (tracing() || busy() || ["findings", "questions", "retry", "prompt", "sources"].includes(phase())) ? [
         { key: "t", group: "Forge Investigation", desc: "Toggle turn history", cmd: () => setTracing((value) => !value) },
       ] : []),
-      ...(!busy() && !tracing() && !invalid() && ["findings", "prompt", "sources"].includes(phase()) ? [
+      ...(!busy() && !tracing() && !invalid() && ["findings", "retry", "prompt", "sources"].includes(phase()) ? [
         { key: "pageup", group: "Forge Investigation", desc: "Scroll review up", cmd: () => scroll?.scrollBy(-10) },
         { key: "pagedown", group: "Forge Investigation", desc: "Scroll review down", cmd: () => scroll?.scrollBy(10) },
+      ] : []),
+      ...(!busy() && !tracing() && !invalid() && phase() === "retry" ? [
+        { key: "return", group: "Forge Investigation", desc: "Retry with saved answers", cmd: proceed },
+        { key: "i", group: "Forge Investigation", desc: "Retry with saved answers", cmd: proceed },
+        { key: "c", group: "Forge Investigation", desc: "Edit saved answers", cmd: clarify },
+        { key: "f", group: "Forge Investigation", desc: "Refine the request", cmd: () => setPhase("feedback") },
       ] : []),
       ...(!busy() && !tracing() && !invalid() && ["findings", "prompt", "sources"].includes(phase()) ? [
         { key: "return", group: "Forge Investigation", desc: "Continue workshop", cmd: proceed },
@@ -363,7 +436,7 @@ function Workshop(props: Props) {
         { key: "f", group: "Forge Investigation", desc: "Give general feedback", cmd: () => setPhase("feedback") },
         { key: "d", group: "Forge Investigation", desc: "Toggle finding details", cmd: () => setExpanded((value) => !value) },
         { key: "s", group: "Forge Investigation", desc: "Inspect sources and activity", cmd: () => { refresh(); setPhase("sources") } },
-        { key: "i", group: "Forge Investigation", desc: "Investigate further", cmd: () => { void investigate() } },
+        { key: "i", group: "Forge Investigation", desc: "Continue assessment or recover suggestions", cmd: () => { void investigate(!!recover()) } },
         { key: "e", group: "Forge Investigation", desc: "Edit prompt", cmd: () => { if (ready()) setPhase("edit") } },
         { key: "a", group: "Forge Investigation", desc: "Stage prompt without sending", cmd: () => { if (phase() === "prompt") void accept() } },
         { key: "v", group: "Forge Investigation", desc: "Choose model", cmd: () => setPhase("model") },
@@ -381,14 +454,23 @@ function Workshop(props: Props) {
         </box>
         <Show when={invalid()}><text fg={theme.error}>Workspace, session, or composer changed. Close and reopen; your current draft was preserved.</text></Show>
         <Show when={error()}><text fg={theme.error}>{error()}</text></Show>
+        <Show when={task.failure()}>{(failure) => <text fg={theme.textMuted}>
+          Failure: {failure().code}{failure().stage ? ` during ${failure().stage}` : ""}{failure().reason ? ` (${failure().reason})` : ""}
+        </text>}</Show>
         <Show when={busy()}><text>{status()} | Esc cancels; no automatic retry</text></Show>
-        <Show when={!invalid() && (tracing() || busy() && journal().length > 0)}>
-          <ForgeTurns journal={journal()} observations={observations()} findings={!attempt() || attempt() === record()?.id ? record()?.findings : []} model={reported()} height={dimensions().height - 15} />
+        <Show when={!busy() && access() === "unknown"}>
+          <text onMouseUp={() => { void run("Rechecking evidence access", revalidate) }}>[Ctrl+R] Recheck evidence access</text>
+        </Show>
+        <Show when={!busy() && !invalid() && recover()}>
+          <text fg={theme.primary} onMouseUp={() => { void investigate(true) }}>[Ctrl+R] Retry conclusion only: revalidate and reuse recorded evidence</text>
+        </Show>
+        <Show when={!invalid() && access() === "verified" && (tracing() || busy() && journal().length > 0)}>
+          <ForgeTurns journal={journal()} observations={observations()} findings={!attempt() || attempt() === record()?.id ? record()?.findings : []} model={reported()} now={busy() ? clock() : undefined} height={dimensions().height - 15} />
         </Show>
         <Show when={!busy() && !invalid() && !tracing() && (journal().length || observations().length)}>
           <text flexShrink={0} fg={theme.primary} onMouseUp={() => setTracing(true)}>[t / Ctrl+T] Turn history: model updates, tools and resources</text>
         </Show>
-        <Show when={!busy() && !invalid() && !tracing()}>
+        <Show when={!busy() && !invalid() && !tracing() && access() === "verified"}>
           <Show when={phase() === "input"}>
             <text fg={theme.textMuted}>Model: {model() || "not selected"}</text>
             <ForgeField title="What should the agent investigate? Enter starts model calls." value={input()} change={setInput}
@@ -398,9 +480,22 @@ function Workshop(props: Props) {
             submit={(value) => { setModel(value); setPhase("input") }} back={() => setPhase("input")} /></Show>
           <Show when={phase() === "input" && ready()}><text onMouseUp={() => setPhase("prompt")}>[Review previous prompt without regenerating]</text></Show>
           <Show when={phase() === "questions"}>
-            <ForgeQuestions questions={record()?.questions ?? []} values={values()}
-              change={(key, value) => setValues((items) => ({ ...items, [key]: value }))}
+            <ForgeQuestions questions={record()?.questions ?? []} values={values()} step={settled().length + 1}
+              context={(settled().at(-1)?.option || settled().at(-1)?.comment || "").replace(/\s+/g, " ").slice(0, 240)}
+              change={answer}
               submit={() => { void investigate() }} back={() => { setError(""); setPhase("findings") }} />
+          </Show>
+          <Show when={phase() === "retry"}>
+            <text fg={theme.primary}>Your answers were kept. The next step did not complete.</text>
+            <scrollbox ref={(value: ScrollBoxRenderable) => { scroll = value }} flexGrow={1} flexShrink={1} flexBasis={0} minHeight={1}>
+              <For each={replies(submitted())}>{(reply) => <box marginBottom={1}>
+                <text>{reply.question}</text>
+                <text fg={theme.textMuted}>{reply.option || reply.comment || "Skipped optional question"}</text>
+                <Show when={reply.option && reply.comment}><text fg={theme.textMuted}>{reply.comment}</text></Show>
+              </box>}</For>
+            </scrollbox>
+            <text fg={theme.primary} onMouseUp={proceed}>{primary()}</text>
+            <text fg={theme.textMuted}>c Edit answers | f Refine request | t Turn history | Esc Close</text>
           </Show>
           <Show when={phase() === "feedback"}>
             <ForgeField title="Your answers or feedback. Enter investigates again (model calls)." value={feedback()} change={setFeedback}
@@ -413,20 +508,29 @@ function Workshop(props: Props) {
           <Show when={phase() === "edit"}><ForgeField title="Edit the implementation prompt; provenance remains attached." value={text()} change={setText}
             submit={(value) => { setText(value); void edit() }} back={() => setPhase("prompt")} /></Show>
           <Show when={phase() === "findings"}>
-            <text flexShrink={0} fg={theme.primary}>{record()?.state === "needs_input"
+            <text flexShrink={0} fg={theme.primary}>{record()?.state === "needs_input" && record()?.questions.length
               ? "Clarification needed before a prompt can be written."
-              : clarification() ? "No supported direction yet. Refine the request to continue."
+              : recover() ? "The model's suggestions could not be validated. Your answers were kept."
+              : clarification() ? "No actionable improvements were identified in this assessment."
               : `Choose what to include in your prompt. ${selected().length} selected.`}</text>
             <scrollbox ref={(value: ScrollBoxRenderable) => { scroll = value }} flexGrow={1} flexShrink={1} flexBasis={0} minHeight={1}>
-              <For each={record()?.questions}>{(item) => <box marginBottom={1}>
+              <For each={settled()}>{(reply) => <text fg={theme.textMuted}>
+                Answered: {reply.question} {reply.option || reply.comment || "Skipped optional question"}
+              </text>}</For>
+              <For each={questions()}>{(item) => <box marginBottom={1}>
                 <text fg={theme.primary}>{item.optional ? "Optional question" : "Question"}: {item.question}</text>
                 <text onMouseUp={clarify}>[c] Select an answer or write your own</text>
                 <Show when={expanded()}><text fg={theme.textMuted}>{item.impact}</text></Show>
               </box>}</For>
+              <Show when={!record()?.findings.length || record()?.state === "unstructured"}>
+                <text>{recover() || record()?.state === "needs_input" && !record()?.questions.length
+                  ? "Model response (not validated findings)" : "Assessment summary"}: {record()?.summary}</text>
+              </Show>
               <Show when={expanded()}><text>Model: {model()}{"\n"}{record()?.intent}{"\n"}{record()?.summary}{"\n"}</text></Show>
               <For each={record()?.findings}>{(item, index) => <box id={`forge-finding-${index()}`} marginBottom={1} onMouseUp={() => { setCursor(index()); toggle(index()) }}>
                 <text fg={cursor() === index() ? theme.primary : theme.text}>{selected().includes(item.id) ? "[x]" : "[ ]"} {item.title} ({item.kind}, {item.support})</text>
-                <text>Next step: {item.action}</text>
+                <Show when={item.support === "unresolved"}><text fg={theme.textMuted}>Unverified direction. Investigate before choosing a fix.</text></Show>
+                <text>{item.support === "unresolved" ? "Proposed work (verify first)" : "Next step"}: {item.action}</text>
                 <Show when={expanded()}>
                   <text>{item.explanation}</text><text>Benefit: {item.benefit}</text>
                   <For each={item.unknowns}>{(value) => <text fg={theme.textMuted}>Unknown: {value}</text>}</For>
@@ -434,7 +538,7 @@ function Workshop(props: Props) {
                   <text fg={theme.textMuted}>Evidence: {item.evidence.join(", ") || "not established"} | Opposing evidence: {item.counterevidence.join(", ") || "none recorded"}</text>
                 </Show>
               </box>}</For>
-              <Show when={!record()?.findings.length}><text>No supported change selected. Clarify the target or investigate further; no fix will be invented.</text></Show>
+              <Show when={!record()?.findings.length}><text>No improvement candidates are available to select from this response.</text></Show>
               <Show when={expanded() || clarification()}><For each={record()?.limitations}>{(item) => <text fg={theme.textMuted}>{item}</text>}</For></Show>
             </scrollbox>
             <box flexShrink={0}>

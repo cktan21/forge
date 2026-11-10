@@ -1,4 +1,4 @@
-import type { Activity, EnhancementProgress } from "./schema"
+import type { Activity, ActivityLog, EnhancementProgress } from "./schema"
 import { redact } from "./util"
 
 export function group(action: string) {
@@ -7,6 +7,27 @@ export function group(action: string) {
   if (action === "Selection complete" || action === "Selected for model") return "context"
   if (action === "Evidence rechecked" || action === "Citations verified") return "checks"
   return "repository"
+}
+
+export function combine(logs: readonly ActivityLog[]): ActivityLog {
+  const counts = new Map<string, number>()
+  for (const log of logs) {
+    const samples = new Map<string, number>()
+    for (const item of log.entries) {
+      const key = group(item.action)
+      samples.set(key, (samples.get(key) ?? 0) + 1)
+    }
+    for (const [key, count] of Object.entries(log.counts ?? {})) samples.set(key, count)
+    for (const [key, count] of samples) counts.set(key, (counts.get(key) ?? 0) + count)
+  }
+  const retained = new Map<string, number>()
+  const entries = logs.flatMap((log) => log.entries).toReversed().filter((item) => {
+    const key = group(item.action)
+    const count = (retained.get(key) ?? 0) + 1
+    retained.set(key, count)
+    return count <= 20
+  }).reverse()
+  return { entries, counts: Object.fromEntries(counts), total: logs.reduce((sum, log) => sum + log.total, 0) }
 }
 
 export function activity(update?: (value: EnhancementProgress) => void, signal?: AbortSignal) {

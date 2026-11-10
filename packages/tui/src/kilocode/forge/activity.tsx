@@ -1,4 +1,4 @@
-import { createSignal, For, Show } from "solid-js"
+import { createEffect, createSignal, For, Show } from "solid-js"
 import type { ScrollBoxRenderable } from "@opentui/core"
 import type { ActivityLog } from "@kilocode/forge/schema"
 import { group } from "@kilocode/forge/activity"
@@ -13,17 +13,21 @@ const sections = [
   { id: "checks", title: "Evidence and citation checks" },
 ]
 
-export function ForgeActivity(props: { log?: ActivityLog; active?: boolean; scroll?: () => ScrollBoxRenderable | undefined }) {
+export function ForgeActivity(props: { log?: ActivityLog; active?: boolean; scroll?: () => ScrollBoxRenderable | undefined; focus?: () => void }) {
   const { theme } = useTheme()
   const id = `forge-activity-${crypto.randomUUID()}`
   const [cursor, setCursor] = createSignal(0)
   const [opened, setOpened] = createSignal(new Set<string>())
   const rows = (key: string) => (props.log?.entries ?? []).filter((item) => group(item.action) === key)
+  createEffect(() => {
+    if (props.active) props.scroll?.()?.scrollChildIntoView(`${id}-${sections.at(cursor())!.id}`)
+  })
   function choose(next: number) {
     setCursor((next + sections.length) % sections.length)
     props.scroll?.()?.scrollChildIntoView(`${id}-${sections.at(cursor())!.id}`)
   }
   function toggle(index = cursor()) {
+    props.focus?.()
     choose(index)
     const key = sections.at(index)!.id
     setOpened((value) => {
@@ -46,7 +50,7 @@ export function ForgeActivity(props: { log?: ActivityLog; active?: boolean; scro
     ],
   }))
   return <box gap={1}>
-    <text fg={theme.primary}>File Activity{props.log ? ` (${props.log.total} recorded updates)` : ""}</text>
+    <text fg={theme.primary} onMouseUp={props.focus}>File Activity{props.log ? ` (${props.log.total} recorded updates)` : ""}</text>
     <text fg={theme.textMuted}>Choose a section to expand it. Local reads are not the same as model-selected excerpts.</text>
     <For each={sections}>{(section, index) => <box gap={1}>
       <text id={`${id}-${section.id}`} fg={cursor() === index() ? theme.primary : theme.text} onMouseUp={() => toggle(index())}>
@@ -57,7 +61,7 @@ export function ForgeActivity(props: { log?: ActivityLog; active?: boolean; scro
           <Show when={(props.log?.counts?.[section.id] ?? 0) > rows(section.id).length}>
             <text fg={theme.textMuted}>Showing the latest {rows(section.id).length} updates in this section.</text>
           </Show>
-          <For each={rows(section.id)}>{(item) => <box border={true} borderColor={theme.textMuted} paddingLeft={1} paddingRight={1}>
+          <For each={rows(section.id)}>{(item) => <box buffered={true} border={true} borderColor={theme.textMuted} paddingLeft={1} paddingRight={1}>
             <text fg={theme.primary}>{item.action}{item.path ? `: ${item.path}` : ""}</text>
             <text fg={theme.textMuted}>{item.detail}</text>
           </box>}</For>
