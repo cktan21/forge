@@ -8123,6 +8123,10 @@ export class Forge extends HeyApiClient {
         revision: string
         session?: string
       }
+      resume?: {
+        id: string
+        revision: string
+      }
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -8140,6 +8144,7 @@ export class Forge extends HeyApiClient {
             { in: "body", key: "answers" },
             { in: "body", key: "feedback" },
             { in: "body", key: "previous" },
+            { in: "body", key: "resume" },
           ],
         },
       ],
@@ -8177,6 +8182,10 @@ export class Forge extends HeyApiClient {
         revision: string
         session?: string
       }
+      resume?: {
+        id: string
+        revision: string
+      }
     },
     options?: Options<never, ThrowOnError, ForgeInvestigateStreamResponse>,
   ) {
@@ -8194,6 +8203,7 @@ export class Forge extends HeyApiClient {
             { in: "body", key: "answers" },
             { in: "body", key: "feedback" },
             { in: "body", key: "previous" },
+            { in: "body", key: "resume" },
           ],
         },
       ],

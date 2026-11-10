@@ -16,14 +16,15 @@ function original(item: Source | undefined) {
 }
 
 test("reopened SQLite rebuilds repository ownership before merging stripped legacy adapter records", async () => {
-  const root = await realpath(await mkdtemp(path.join(tmpdir(), "forge-repository-reopen-")))
+  const home = await realpath(await mkdtemp(path.join(tmpdir(), "forge-repository-reopen-")))
+  const root = path.join(home, "workspace")
   await Bun.write(path.join(root, ".kilo/forge.jsonc"), JSON.stringify({ routing: "domains", exclude: [".kilo/**"] }))
   await Bun.write(path.join(root, "checkpoint.ts"), "export function recovery(checkpoint: string) { return checkpoint.trim() }\n")
   await Bun.write(path.join(root, "package.json"), JSON.stringify({ dependencies: { "checkpoint-recovery": "1.0.0" } }))
   const targets: Source[] = []
   try {
     for (const restart of [false, true]) {
-      const db = new Database(path.join(root, ".kilo/catalog.sqlite"))
+      const db = new Database(path.join(home, "catalog.sqlite"))
       const storage = store({
         all: async (query) => db.query<Record<string, unknown>, (string | number | null)[]>(query.text).all(...(query.values ?? [])),
         batch: async (queries) => {
@@ -61,7 +62,7 @@ test("reopened SQLite rebuilds repository ownership before merging stripped lega
       }
     }
   } finally {
-    await rm(root, { recursive: true, force: true })
+    await rm(home, { recursive: true, force: true })
   }
 })
 
@@ -69,13 +70,14 @@ for (const selector of ["ranked", "greedy", "knapsack"]) {
   for (const kind of ["file", "symbol", "dependency", "domain"]) {
     for (const channel of ["docs", "memory", "legacy"] as const) {
       test(`${selector}/${kind}/${channel}: repository originals own their IDs`, async () => {
-        const root = await realpath(await mkdtemp(path.join(tmpdir(), "forge-repository-owner-")))
+        const home = await realpath(await mkdtemp(path.join(tmpdir(), "forge-repository-owner-")))
+        const root = path.join(home, "workspace")
         await Bun.write(path.join(root, ".kilo/forge.jsonc"), JSON.stringify({
           selector, routing: "domains", budget: 8000, exclude: [".kilo/**"],
         }))
         await Bun.write(path.join(root, "checkpoint.ts"), "export function recovery(checkpoint: string) { return checkpoint.trim() }\n")
         await Bun.write(path.join(root, "package.json"), JSON.stringify({ dependencies: { "checkpoint-recovery": "1.0.0" } }))
-        const db = new Database(path.join(root, ".kilo/catalog.sqlite"))
+        const db = new Database(path.join(home, "catalog.sqlite"))
         const storage = store({
           all: async (query) => db.query<Record<string, unknown>, (string | number | null)[]>(query.text).all(...(query.values ?? [])),
           batch: async (queries) => {
@@ -150,7 +152,7 @@ for (const selector of ["ranked", "greedy", "knapsack"]) {
         } finally {
           await api.dispose()
           db.close()
-          await rm(root, { recursive: true, force: true })
+          await rm(home, { recursive: true, force: true })
         }
       })
     }

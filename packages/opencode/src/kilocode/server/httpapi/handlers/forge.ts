@@ -138,6 +138,7 @@ export const forgeHandlers = HttpApiBuilder.group(InstanceHttpApi, "forge", (han
               type: "error",
               message: err instanceof EnhancementError ? err.message
                 : "Investigation could not complete. Your input is preserved; inspect permissions, model support and source freshness before retrying.",
+              ...(err instanceof EnhancementError ? { failure: err.failure } : {}),
             }),
             onSuccess: (investigation) => Queue.offerUnsafe(queue, { type: "result", investigation }),
           }),

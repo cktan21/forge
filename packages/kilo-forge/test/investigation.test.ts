@@ -1,67 +1,16 @@
-import { expect, test } from "bun:test"
-import { Database } from "bun:sqlite"
+import { expect, setSystemTime, test } from "bun:test"
 import { randomUUID } from "node:crypto"
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
+import { writeFile } from "node:fs/promises"
 import path from "node:path"
 import { Schema } from "effect"
-import { engine, fingerprint, type Ports } from "../src/engine"
+import { fingerprint } from "../src/engine"
 import { source } from "../src/parse"
-import { store } from "../src/store"
 import { actions, findings, limits, type Call, type Turn, type InvestigationProgress } from "../src/investigation"
-import { tokens } from "../src/util"
-import { decode, usage } from "../src/schema"
+import { decode } from "../src/schema"
 import { structured } from "../src/structured"
 import { EnhancementError } from "../src/enhancement"
 import { Written } from "../src/writing"
-
-const model = { providerID: "local", modelID: "fixture" }
-function result(input: Turn, calls: Call[]) {
-  return {
-    calls, bytes: tokens(JSON.stringify({ system: input.system, input: input.input, observations: input.observations })) + 500,
-    usage: { ...usage("local/fixture"), input: 10, output: 5, measured: true },
-  }
-}
-function conclusion(evidence: string[] = []) {
-  return {
-    intent: "Prevent duplicate queue entries",
-    summary: "The queue needs a scoped deduplication change.",
-    findings: evidence.length ? [{
-      title: "Repeated enqueue is not guarded", kind: "defect", support: "observed",
-      explanation: "Enqueue appends without checking the identifier.", benefit: "Prevent duplicate work.",
-      evidence, counterevidence: [], unknowns: [], action: "Guard duplicate identifiers.",
-      verification: ["Add a regression for repeated enqueue."],
-    }] : [],
-    questions: [], limitations: ["Runtime tests have not been executed."],
-  }
-}
-async function fixture(turn?: Ports["turn"], opts: Partial<Ports> = {}) {
-  const root = await realpath(await mkdtemp(path.join(tmpdir(), "forge-investigate-")))
-  await mkdir(path.join(root, ".kilo"))
-  await writeFile(path.join(root, ".kilo/forge.jsonc"), '{"investigation":true}')
-  await writeFile(path.join(root, "queue.ts"), "const queue: string[] = []\nexport function enqueue(id: string) { queue.push(id) }\n")
-  await writeFile(path.join(root, "caller.ts"), 'import { enqueue } from "./queue"\nexport function retry(id: string) { enqueue(id) }\n')
-  const db = new Database(":memory:")
-  const storage = store({
-    all: async (query) => db.query<Record<string, unknown>, (string | number | null)[]>(query.text).all(...query.values ?? []),
-    batch: async (queries) => { db.transaction(() => { for (const query of queries) db.query(query.text).run(...query.values ?? []) })() },
-  })
-  const calls: Turn[] = []
-  const ports: Ports = {
-    ...opts, root, store: storage, resolve: async () => model, destination: async () => ({ fingerprint: "local-route", origins: [] }),
-    complete: async () => { throw new Error("Legacy rewrite must not run") },
-    turn: async (input) => {
-      calls.push(input)
-      if (turn) return turn(input)
-      if (calls.length === 1) return result(input, [{ id: "search", name: "forge_search_code", input: { query: "enqueue queue" } }])
-      if (calls.length === 2) return result(input, [{ id: "read", name: "forge_read_file", input: { path: "queue.ts" } }])
-      const source = decode(Schema.Struct({ source: Schema.Struct({ id: Schema.String }) }), JSON.parse(input.observations.at(-1)!.output)).source
-      return result(input, [{ id: "finish", name: "forge_finish", input: conclusion([source.id]) }])
-    },
-  }
-  const api = engine(ports)
-  return { root, storage, api, ports, calls, async [Symbol.asyncDispose]() { await api.dispose(); db.close(); await rm(root, { recursive: true, force: true }) } }
-}
+import { conclusion, fixture, model, result } from "./investigation-fixture"
 
 test("actual engine investigates through search and direct reads before publishing supported findings", async () => {
   const recalled: string[] = []
@@ -140,6 +89,107 @@ test("consequential missing intent produces a needs-input result without a presu
   expect(record.findings).toEqual([])
 })
 
+test.each([undefined, false, true])("clarification optional=%s preserves required decisions without retrying", async (flag) => {
+  const question = {
+    id: "scope", question: "Which backend behavior should change?", impact: "The target behavior is not specified.",
+    options: ["Describe a failing request", "Improve a specific operation"],
+    ...(flag == null ? {} : { optional: flag }),
+  }
+  await using f = await fixture(async (input) => result(input, [{
+    id: "finish", name: "forge_finish", input: { ...conclusion(), questions: [question] },
+  }]))
+  const record = await f.api.investigate({ key: randomUUID(), text: "fix the backend", model })
+  expect(record.state).toBe(flag === true ? "findings_ready" : "needs_input")
+  expect(record.questions).toEqual([{ ...question, optional: flag ?? false }])
+  expect(record.findings).toEqual([])
+  expect(record.calls).toBe(0)
+  expect(record.journal?.at(-1)?.inspections.at(0)?.input).toBe("Conclusion payload; see the validated review.")
+  expect(f.calls).toHaveLength(1)
+  expect(await f.api.investigation(record.id)).toEqual(record)
+  expect(Object.hasOwn(question, "optional")).toBe(flag != null)
+})
+
+test.each([undefined, null, "false", 0])("an explicitly invalid clarification flag %s is not defaulted", (flag) => {
+  expect(() => findings({
+    ...conclusion(),
+    questions: [{ id: "scope", question: "What should change?", impact: "Sets the target.", options: ["First", "Second"], optional: flag }],
+  }, [])).toThrow("questions.0.optional")
+})
+
+test("required clarification withholds proposed findings instead of approving unsupported claims", async () => {
+  const output = conclusion(["a".repeat(24)])
+  await using f = await fixture(async (input) => result(input, [{
+    id: "finish", name: "forge_finish", input: {
+      ...output, findings: output.findings.map((item) => ({ ...item, action: null })),
+      questions: [{ id: "scope", question: "Which backend?", impact: "Selects the target.", options: ["HTTP API", "Worker"] }],
+    },
+  }]))
+  const record = await f.api.investigate({ key: randomUUID(), text: "fix the backend", model })
+  expect(record.state).toBe("needs_input")
+  expect(record.questions.at(0)?.optional).toBe(false)
+  expect(record.findings).toEqual([])
+  expect(record.limitations).toContain("Proposed findings were not accepted while required clarification remains.")
+  expect(f.calls).toHaveLength(1)
+})
+
+test.each([
+  { name: "missing", action: undefined },
+  { name: "null", action: null },
+  { name: "array", action: ["Guard duplicate identifiers."] },
+  { name: "number", action: 42 },
+  { name: "blank", action: " " },
+  { name: "oversized", action: "x".repeat(4001) },
+])("malformed $name action preserves valid findings and recorded reads", async (item) => {
+  await using f = await fixture(async (input) => {
+    if (!input.observations.length) return result(input, [{ id: "read", name: "forge_read_file", input: { path: "queue.ts" } }])
+    const original = input.sources.find((source) => source.uri === "queue.ts")
+    if (!original) throw new Error("Expected inspected queue evidence")
+    const output = conclusion([original.id])
+    return result(input, [{ id: "finish", name: "forge_finish", input: {
+      ...output, findings: [{ ...output.findings.at(0), action: item.action }, ...output.findings],
+    } }])
+  })
+  const record = await f.api.investigate({ key: randomUUID(), text: "Inspect queue", model })
+  expect(record.state).toBe("findings_ready")
+  expect(record.findings).toHaveLength(1)
+  expect(record.findings.at(0)?.action).toBe("Guard duplicate identifiers.")
+  expect(record.limitations.join(" ")).toContain("discarded: invalid action format")
+  expect(record.observations.at(0)?.tool).toBe("forge_read_file")
+  expect(record.journal?.at(0)?.inspections.at(0)?.activity?.total).toBeGreaterThan(0)
+  expect(record.journal?.every((round) => round.state === "complete")).toBe(true)
+  expect(await f.api.investigation(record.id)).toEqual(record)
+  expect(f.calls).toHaveLength(2)
+})
+
+test("discarded malformed proposals expose only known schema paths, never model values", () => {
+  const output = conclusion(["a".repeat(24)])
+  const record = findings({
+    ...output, findings: [{ ...output.findings.at(0), action: null, PRIVATE_KEY_CANARY: "PRIVATE_VALUE_CANARY" }],
+  }, [])
+  expect(record.findings).toEqual([])
+  expect(record.limitations.join(" ")).toContain("discarded")
+  expect(JSON.stringify(record)).not.toContain("PRIVATE_")
+})
+
+test("public text without tool calls stays unstructured and never becomes findings", async () => {
+  const note = "Which backend behavior should change? password=private-canary"
+  await using f = await fixture(async (input) => ({ ...result(input, []), note }))
+  const input = { key: randomUUID(), text: "i want you to improve the ba", model }
+  const record = await f.api.investigate(input)
+  expect(record.state).toBe("unstructured")
+  expect(record.summary).toContain("Which backend behavior should change?")
+  expect(record.summary).not.toContain("private-canary")
+  expect(record.findings).toEqual([])
+  expect(record.questions).toEqual([])
+  expect(record.observations).toEqual([])
+  expect(record.calls).toBe(0)
+  expect(record.journal?.at(0)?.state).toBe("complete")
+  expect(record.limitations.join(" ")).toContain("not an evidence-backed finding")
+  expect(record.original).toBe(input.text)
+  expect(await f.api.investigation(record.id)).toEqual(record)
+  expect(f.calls).toHaveLength(1)
+})
+
 test("tools and findings reject unauthorized actions, guessed citations and uninspected certainty", async () => {
   for (const call of [
     { id: "bad", name: "bash", input: { command: "touch changed" } },
@@ -155,7 +205,7 @@ test("tools and findings reject unauthorized actions, guessed citations and unin
   expect(() => findings(conclusion(["a".repeat(24)]), [])).toThrow("not observed")
 })
 
-test("text-only output fails with a safe diagnostic before executing", async () => {
+test("an empty model response fails with a safe diagnostic before executing", async () => {
   await using f = await fixture(async (input) => result(input, []))
   const key = randomUUID()
   const error = await f.api.investigate({ key, text: "Inspect queue", model }).catch((err: unknown) => err)
@@ -185,9 +235,9 @@ test("failure snapshots clear source-bearing activity when evidence access chang
 
 test("invalid findings expose only known schema paths, never model values or unknown keys", () => {
   for (const value of [
-    { ...conclusion(), questions: [{ id: "question", question: "PRIVATE_PROMPT_CANARY", impact: "Scope", options: ["First", "Second"] }] },
+    { ...conclusion(), questions: [{ id: "question", question: "PRIVATE_PROMPT_CANARY", impact: "Scope", options: ["First", "Second"], optional: "PRIVATE_FLAG_CANARY" }] },
     { ...conclusion(), PRIVATE_KEY_CANARY: "PRIVATE_VALUE_CANARY" },
-    { ...conclusion(), findings: [{ ...conclusion(["a".repeat(24)]).findings.at(0), title: 42 }] },
+    { ...conclusion(), findings: "PRIVATE_MODEL_CANARY" },
   ]) {
     try {
       findings(value, [])
@@ -244,15 +294,33 @@ test("turn snapshots retain public updates and tool activity without replaying t
   expect(await f.api.investigation(record.id)).toEqual(record)
 })
 
+test("investigation retains the full bounded activity sections in live and saved turns", async () => {
+  const frames: InvestigationProgress[] = []
+  await using f = await fixture(async (input) => result(input, input.observations.length
+    ? [{ id: "finish", name: "forge_finish", input: conclusion() }]
+    : [{ id: "search", name: "forge_search_code", input: { query: "enqueue" } }]))
+  await Promise.all(Array.from({ length: 25 }, (_, index) =>
+    writeFile(path.join(f.root, `queue-${index}.ts`), "export function enqueue(id: string) { return id }\n")))
+  const record = await f.api.investigate({ key: randomUUID(), text: "Inspect queue", model, update: (frame) => frames.push(frame) })
+  const log = record.journal?.at(0)?.inspections.at(0)?.activity
+  expect(log?.counts?.retrieval).toBeGreaterThan(20)
+  expect(log?.entries.filter((item) => item.action === "Retrieved candidate")).toHaveLength(20)
+  expect(log?.entries.some((item) => item.action === "Scan complete")).toBe(true)
+  expect(frames.some((frame) => frame.journal?.at(0)?.inspections.at(0)?.activity?.entries
+    .filter((item) => item.action === "Retrieved candidate").length === 20)).toBe(true)
+  expect((await f.api.investigation(record.id)).journal).toEqual(record.journal)
+  expect(JSON.stringify(f.calls.at(-1)?.observations)).not.toContain("Retrieved candidate")
+})
+
 test("turn history distinguishes replayed excerpts from metadata-only earlier results", async () => {
-  await using f = await fixture(async (input) => result(input, input.observations.length < 2
+  await using f = await fixture(async (input) => result(input, input.observations.length < 4
     ? [{ id: `read-${input.observations.length}`, name: "forge_read_file", input: { path: "queue.ts", start: input.observations.length * 100 + 1, lines: 100 } }]
     : [{ id: "finish", name: "forge_finish", input: conclusion() }]))
-  await writeFile(path.join(f.root, "queue.ts"), Array.from({ length: 200 }, () => `// ${"x".repeat(140)}`).join("\n"))
+  await writeFile(path.join(f.root, "queue.ts"), Array.from({ length: 400 }, () => `// ${"x".repeat(140)}`).join("\n"))
   const record = await f.api.investigate({ key: randomUUID(), text: "Inspect queue", model })
-  expect(record.journal?.at(-1)?.included).toEqual(["read-1"])
+  expect(record.journal?.at(-1)?.included).toEqual(["read-1", "read-2", "read-3"])
   expect(record.journal?.at(-1)?.omitted).toEqual(["read-0"])
-  expect(record.observations).toHaveLength(2)
+  expect(record.observations).toHaveLength(4)
   expect(f.calls.at(-1)?.observations.at(0)?.output).toContain("Earlier output omitted")
 })
 
@@ -273,7 +341,8 @@ test("tool purposes provide public updates without becoming replayed model instr
 test.each(["forge_get_symbol", "forge_relationships"] as const)("source inspection %s accepts an ID returned by a direct read", async (tool) => {
   await using f = await fixture(async (input) => {
     if (!input.observations.length) return result(input, [{ id: "read", name: "forge_read_file", input: { path: "queue.ts" } }])
-    const source = decode(Schema.Struct({ source: Schema.Struct({ id: Schema.String }) }), JSON.parse(input.observations.at(0)!.output)).source
+    const source = input.sources.find((item) => item.uri === "queue.ts")
+    if (!source) throw new Error("Expected the directly inspected source")
     if (input.observations.length === 1) return result(input, [{ id: "inspect", name: tool, input: { id: source.id } }])
     return result(input, [{ id: "finish", name: "forge_finish", input: conclusion([source.id]) }])
   })
@@ -315,21 +384,23 @@ test("read permission failures do not become recoverable tool feedback", async (
   expect(f.calls).toHaveLength(1)
 })
 
-test("a terminal conclusion skips sibling reads and only uses earlier evidence", async () => {
+test("a mixed conclusion waits for independent reads and a later evidence-backed response", async () => {
   await using f = await fixture(async (input) => {
     if (!input.observations.length) return result(input, [{ id: "read", name: "forge_read_file", input: { path: "queue.ts" } }])
-    const source = decode(Schema.Struct({ source: Schema.Struct({ id: Schema.String }) }), JSON.parse(input.observations.at(-1)!.output)).source
+    const source = decode(Schema.Struct({ source: Schema.Struct({ id: Schema.String }) }), JSON.parse(input.observations.at(0)!.output)).source
+    if (input.observations.length === 2) return result(input, [{ id: "done", name: "forge_finish", input: conclusion([source.id]) }])
     return result(input, [
-      { id: "skipped", name: "forge_read_file", input: { path: "unread.ts" } },
+      { id: "missing", name: "forge_read_file", input: { path: "unread.ts" } },
       { id: "finish", name: "forge_finish", input: conclusion([source.id]) },
     ])
   })
   const record = await f.api.investigate({ key: randomUUID(), text: "Inspect queue", model })
   expect(record.state).toBe("findings_ready")
-  expect(record.calls).toBe(1)
-  expect(record.observations.map((item) => item.id)).toEqual(["read"])
-  expect(record.limitations.join(" ")).toContain("not executed")
-  expect(f.calls).toHaveLength(2)
+  expect(record.calls).toBe(2)
+  expect(record.observations.map((item) => item.id)).toEqual(["read", "missing"])
+  expect(record.journal?.at(1)?.inspections.at(1)?.state).toBe("skipped")
+  expect(record.limitations.join(" ")).toContain("Premature conclusions")
+  expect(f.calls).toHaveLength(3)
 })
 
 test("sibling reads cannot supply unobserved evidence or resolve competing conclusions", async () => {
@@ -343,11 +414,13 @@ test("sibling reads cannot supply unobserved evidence or resolve competing concl
       { id: "second", name: "forge_finish", input: { ...conclusion(), summary: "A different conclusion that must not be silently chosen." } },
     ],
   ] satisfies Call[][]) {
-    await using f = await fixture(async (input) => result(input, calls))
+    await using f = await fixture(async (input) => result(input, input.observations.length
+      ? calls.filter((call) => call.name === "forge_finish").map((call) => ({ ...call, id: `later-${call.id}` }))
+      : calls))
     const key = randomUUID()
     const error = await f.api.investigate({ key, text: "Inspect queue", model }).catch((err: unknown) => err)
     expect(error).toBeInstanceOf(EnhancementError)
-    expect((await f.storage.investigation(f.root, "", key))?.observations).toEqual([])
+    expect((await f.storage.investigation(f.root, "", key))?.observations).toHaveLength(calls.some((call) => call.name === "forge_read_file") ? 1 : 0)
     expect((await f.storage.investigation(f.root, "", key))?.findings).toEqual([])
   }
 })
@@ -388,6 +461,27 @@ test("cumulative accounting reserves a conclusion turn including adapter overhea
   expect(f.calls.map((item) => item.final)).toEqual([false, false, true])
   expect(record.bytes).toBe(270_000)
   expect(record.bytes).toBeLessThan(limits.cumulative)
+})
+
+test("slow model turns reserve time for a conclusion before the investigation deadline", async () => {
+  const started = Date.now()
+  await using f = await fixture(async (input) => {
+    setSystemTime(started + (input.observations.length + 1) * 60_000)
+    return result(input, input.final
+      ? [{ id: "finish", name: "forge_finish", input: conclusion() }]
+      : [{ id: `read-${input.observations.length}`, name: "forge_read_file", input: { path: "queue.ts" } }])
+  })
+  try {
+    const record = await f.api.investigate({ key: randomUUID(), text: "Inspect queue", model })
+    expect(record.state).toBe("findings_ready")
+    expect(record.turns).toBe(2)
+    expect(record.calls).toBe(1)
+    expect(f.calls.at(0)?.final).toBe(false)
+    expect(f.calls.at(1)?.final).toBe(true)
+    expect(record.journal?.at(-1)?.final).toBe(true)
+  } finally {
+    setSystemTime()
+  }
 })
 
 test("direct source reads cannot bypass context exclusions or registered document approval", async () => {

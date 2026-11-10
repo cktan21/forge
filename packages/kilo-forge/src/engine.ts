@@ -30,9 +30,10 @@ import { scope as semanticScope } from "./semantic-scope"
 import type { SearchScope } from "@kilocode/kilo-indexing/search-scope"
 import type { CollectionQuery } from "./collection-semantic"
 import { embeddings, type EmbeddingHost } from "./embeddings"
-import { investigation, type Ports as InvestigationPorts } from "./investigation"
+import type { Ports as InvestigationPorts } from "./investigation"
 import { capabilities } from "./investigation-tools"
-import { writing as drafting, PreparationBinding, type Prepared, type Ports as WritingPorts } from "./writing"
+import type { Ports as WritingPorts } from "./writing"
+import { workshop } from "./workshop"
 import type { Destination, Entry, SelectionInfo, Semantic, RetrievalChannel, EnhancementProgress, Activity, EnhancementInput, EnhancementModel, EnhancementFailure } from "./schema"
 
 type Lookup = { query: string; tool: string; session: string; call?: string; message?: string; preparation?: string; provider?: string; signal?: AbortSignal }
@@ -1302,97 +1303,7 @@ export function engine(ports: Ports) {
     view: (focus, session, signal) => api.view({ focus, session, signal, limit: 50 }),
     snapshot: (signal) => refresh(false, signal),
   })
-  const workshop = investigation({
-    root: ports.root,
-    resolve: async (model) => {
-      if (!(await config(ports.root)).investigation) throw new Error("Enable investigation in .kilo/forge.jsonc to use the investigative workshop")
-      if (!ports.turn) throw new Error("This host does not support investigative tool calling")
-      if (ports.resolve) return ports.resolve(model)
-      if (model) return model
-      throw new Error("Select a model for investigation")
-    },
-    scope: async (session, model, signal) => {
-      await ports.permit?.({ tool: "forge_investigate", pattern: ports.root, session, signal })
-      return tools.scope(session, model, signal)
-    },
-    load: (session, key) => ports.store.investigation(ports.root, session, key),
-    save: (record, revision) => ports.store.investigationSave(record, revision),
-    turn: (input) => ports.turn!(input),
-    execute: tools.execute,
-    check: tools.check,
-    inherit: async (previous, session, model, signal) => {
-      if (previous.session && previous.session !== session) throw new Error("Previous edits belong to a different session")
-      const record = await writer.get(previous.id, previous.session ?? session, signal)
-      if (record.revision !== previous.revision || record.state !== "ready" || record.model.providerID !== model.providerID) throw new Error("Review previous prompt edits and sharing before investigating with them")
-      return { edits: record.edits ?? [], dependencies: record.dependencies }
-    },
-  })
-  const writer = drafting({
-    root: ports.root,
-    investigation: workshop.get,
-    load: (key, session) => ports.store.prepared(ports.root, session, key),
-    save: (record, revision) => ports.store.preparedSave(record, revision),
-    check: async (record, signal) => {
-      const parent = await ports.store.investigation(ports.root, record.scope, record.investigation)
-      if (!parent || parent.revision !== record.parent || parent.state !== "findings_ready"
-        || record.scope !== record.session && record.scope !== ""
-        || !isDeepStrictEqual(parent.model, record.model)
-        || record.scope === record.session && parent.policy !== record.policy
-        || parent.destination !== record.destination) throw new Error("Prepared direction no longer matches its investigation")
-      const originals = new Map([...parent.dependencies ?? [], ...parent.observations.flatMap((item) => item.sources)].map((item) => [item.id, item]))
-      const needed = new Set(record.findings.flatMap((item) => [...item.evidence, ...item.counterevidence]))
-      if (record.findings.some((item) => !parent.findings.some((original) => isDeepStrictEqual(original, item)))
-        || needed.size !== record.sources.length
-        || record.sources.some((item) => !needed.has(item.id) || !isDeepStrictEqual(originals.get(item.id), item))) throw new Error("Prepared evidence does not match the chosen findings")
-      if (!isDeepStrictEqual(record.dependencies, [...originals.values()])) throw new Error("Prepared privacy dependencies were changed")
-      await tools.check({ ...parent, session: record.session, policy: record.policy }, signal)
-    },
-    write: async (input) => {
-      if (!ports.write) throw new Error("This host does not support the investigation prompt writer")
-      return ports.write(input)
-    },
-  })
-  async function bind(input: { binding: PreparationBinding; text: string; session: string; model: EnhancementModel }, signal?: AbortSignal) {
-    const reference = decode(PreparationBinding, input.binding)
-    const local = await ports.store.prepared(ports.root, input.session, reference.id)
-    if (reference.session && reference.session !== input.session) throw new Error("Prepared prompt belongs to a different session")
-    const previous = reference.session === "" ? await ports.store.prepared(ports.root, "", reference.id)
-      : local ?? await ports.store.prepared(ports.root, "", reference.id)
-    if (!previous || previous.state !== "ready" || previous.revision !== reference.revision
-      || previous.hash !== reference.hash || hash(input.text) !== reference.hash) throw new Error("Prepared prompt changed; review and stage its current revision")
-    const record = await writer.get(previous.id, previous.session, signal)
-    if (input.model.providerID !== record.model.providerID) throw new Error("Prepared prompt uses a different provider; review sharing and regenerate for the selected provider")
-    if (record.session !== input.session) {
-      if (record.session || local && local.scope !== "") throw new Error("A private prepared prompt cannot be moved to another session")
-      const scope = await tools.scope(input.session, input.model, signal)
-      if (scope.destination !== record.destination) throw new Error("Prepared prompt destination changed")
-      if (local && local.hash === record.hash && local.policy === scope.policy) {
-        const checked = await writer.get(local.id, local.session, signal)
-        await ports.store.handoff(ports.root, checked.session, checked.id)
-        return checked
-      }
-      const next: Prepared = { ...record, ...scope, session: input.session, revision: randomUUID(), updated: Date.now() }
-      await ports.store.preparedSave(next, local?.revision)
-      const checked = await writer.get(next.id, next.session, signal)
-      await ports.store.handoff(ports.root, checked.session, checked.id)
-      return checked
-    }
-    await ports.store.handoff(ports.root, record.session, record.id)
-    return record
-  }
-  async function handoff(session: string, model: EnhancementModel, signal?: AbortSignal, historical = false) {
-    const sources = new Map<string, Source>()
-    for (const key of await ports.store.handoffs(ports.root, session)) {
-      const record = historical ? await ports.store.prepared(ports.root, session, key) : await writer.get(key, session, signal)
-      if (!record) throw new Error("Admitted preparation is unavailable")
-      if (record.state !== "ready" || record.model.providerID !== model.providerID) throw new Error("Session contains prepared context that must be reviewed for this provider")
-      // Coding edits do not rewrite an already-admitted historical task. Current
-      // source eligibility and private-document versions remain revocable.
-      if (historical) await tools.admitted(record, signal)
-      for (const source of record.dependencies) sources.set(source.id, source)
-    }
-    return [...sources.values()]
-  }
+  const preparation = workshop(ports, tools)
   function fence<A extends unknown[], B>(run: (...args: A) => Promise<B>) {
     return (...args: A) => ports.store.fenced(ports.root, () => run.apply(api, args))
   }
@@ -1407,15 +1318,15 @@ export function engine(ports: Ports) {
   return {
     ...api,
     investigationStatus: async () => ({ enabled: !!(await config(ports.root)).investigation }),
-    investigate: (input: Parameters<typeof workshop.start>[0]) => client((signal) => ports.store.fenced(ports.root, () => workshop.start({ ...input, signal })), input.signal),
-    investigation: (key: string, session = "", signal?: AbortSignal) => client((abort) => ports.store.fenced(ports.root, () => workshop.get(key, session, abort)), signal),
-    chooseDirection: (input: Parameters<typeof writer.choose>[0], signal?: AbortSignal) => client((abort) => ports.store.fenced(ports.root, () => writer.choose(input, abort)), signal),
-    writePrompt: (input: Parameters<typeof writer.write>[0], signal?: AbortSignal) => client((abort) => ports.store.fenced(ports.root, () => writer.write(input, abort)), signal),
-    preparedPrompt: (key: string, session = "", signal?: AbortSignal) => client((abort) => ports.store.fenced(ports.root, () => writer.get(key, session, abort)), signal),
-    editPrompt: (input: Parameters<typeof writer.edit>[0], signal?: AbortSignal) => client((abort) => ports.store.fenced(ports.root, () => writer.edit(input, abort)), signal),
-    bindPrompt: (input: Parameters<typeof bind>[0], signal?: AbortSignal) => client((abort) => ports.store.fenced(ports.root, () => bind(input, abort)), signal),
-    handoff: (session: string, model: EnhancementModel, signal?: AbortSignal) => client((abort) => ports.store.fenced(ports.root, () => handoff(session, model, abort)), signal),
-    codingContext: (session: string, model: EnhancementModel, signal?: AbortSignal) => client((abort) => ports.store.fenced(ports.root, () => handoff(session, model, abort, true)), signal),
+    investigate: (input: Parameters<typeof preparation.research.start>[0]) => client((signal) => ports.store.fenced(ports.root, () => preparation.research.start({ ...input, signal })), input.signal),
+    investigation: (key: string, session = "", signal?: AbortSignal) => client((abort) => ports.store.fenced(ports.root, () => preparation.research.get(key, session, abort)), signal),
+    chooseDirection: (input: Parameters<typeof preparation.writer.choose>[0], signal?: AbortSignal) => client((abort) => ports.store.fenced(ports.root, () => preparation.writer.choose(input, abort)), signal),
+    writePrompt: (input: Parameters<typeof preparation.writer.write>[0], signal?: AbortSignal) => client((abort) => ports.store.fenced(ports.root, () => preparation.writer.write(input, abort)), signal),
+    preparedPrompt: (key: string, session = "", signal?: AbortSignal) => client((abort) => ports.store.fenced(ports.root, () => preparation.writer.get(key, session, abort)), signal),
+    editPrompt: (input: Parameters<typeof preparation.writer.edit>[0], signal?: AbortSignal) => client((abort) => ports.store.fenced(ports.root, () => preparation.writer.edit(input, abort)), signal),
+    bindPrompt: (input: Parameters<typeof preparation.bind>[0], signal?: AbortSignal) => client((abort) => ports.store.fenced(ports.root, () => preparation.bind(input, abort)), signal),
+    handoff: (session: string, model: EnhancementModel, signal?: AbortSignal) => client((abort) => ports.store.fenced(ports.root, () => preparation.handoff(session, model, abort)), signal),
+    codingContext: (session: string, model: EnhancementModel, signal?: AbortSignal) => client((abort) => ports.store.fenced(ports.root, () => preparation.handoff(session, model, abort, true)), signal),
     read: (input: Parameters<typeof tools.read>[0], session = "", signal?: AbortSignal) => client((abort) => ports.store.fenced(ports.root, () => tools.read(input, session, abort)), signal),
     embeddings: embedding ? {
       jobs: {

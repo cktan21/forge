@@ -1,5 +1,23 @@
 import { expect, test } from "bun:test"
 import { deadline } from "../src/deadline"
+import { EnhancementError, failure } from "../src/enhancement"
+
+test("timeout diagnostics capture the active stage when the deadline expires", async () => {
+  const pending = Promise.withResolvers<void>()
+  let stage: "setup" | "model" = "setup"
+  let calls = 0
+  const reason = () => {
+    calls++
+    return new EnhancementError("Timed out", { ...failure("timeout"), stage })
+  }
+  const result = await deadline(() => { stage = "model"; return pending.promise }, undefined, 20, reason)
+    .catch((err: unknown) => err)
+  expect(result).toMatchObject({ failure: { code: "timeout", stage: "model" } })
+  expect(calls).toBe(1)
+  pending.resolve()
+  expect(await deadline(async () => true, undefined, 20, reason)).toBe(true)
+  expect(calls).toBe(1)
+})
 
 test("expired scope releases the caller and aborts a non-cooperative task", async () => {
   const pending = Promise.withResolvers<number>()

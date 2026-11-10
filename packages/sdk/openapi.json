@@ -19714,6 +19714,10 @@
                               "type": "string",
                               "maxLength": 128
                             },
+                            "stage": {
+                              "type": "string",
+                              "enum": ["setup", "model", "response", "inspection", "validation", "persistence"]
+                            },
                             "model": {
                               "type": "string",
                               "maxLength": 512
@@ -19736,6 +19740,10 @@
                                 "unavailable",
                                 "invalid-request",
                                 "network",
+                                "source-changed",
+                                "policy-changed",
+                                "storage",
+                                "accounting",
                                 "unknown"
                               ]
                             },
@@ -20100,6 +20108,21 @@
                       "required": ["id", "revision"],
                       "additionalProperties": false
                     },
+                    "resume": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "pattern": "^[a-f0-9-]{36}$"
+                        },
+                        "revision": {
+                          "type": "string",
+                          "pattern": "^[a-f0-9-]{36}$"
+                        }
+                      },
+                      "required": ["id", "revision"],
+                      "additionalProperties": false
+                    },
                     "edits": {
                       "type": "array",
                       "items": {
@@ -20241,11 +20264,148 @@
                         "investigating",
                         "findings_ready",
                         "needs_input",
+                        "unstructured",
                         "limited",
                         "failed",
                         "cancelled",
                         "interrupted"
                       ]
+                    },
+                    "failure": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": ["schema", "json", "cutoff", "citation", "transport", "timeout", "cancelled"]
+                        },
+                        "schema": {
+                          "type": "string",
+                          "enum": ["forge-enhancement-v2"]
+                        },
+                        "issues": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "path": {
+                                "type": "array",
+                                "items": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "summary",
+                                        "objective",
+                                        "reuse",
+                                        "inspect",
+                                        "changes",
+                                        "constraints",
+                                        "hypotheses",
+                                        "acceptance",
+                                        "verification",
+                                        "evidence",
+                                        "questions",
+                                        "kind",
+                                        "question",
+                                        "impact",
+                                        "options",
+                                        "statement",
+                                        "reason",
+                                        "action",
+                                        "basis"
+                                      ]
+                                    },
+                                    {
+                                      "type": "integer",
+                                      "minimum": 0
+                                    }
+                                  ]
+                                },
+                                "maxItems": 6
+                              },
+                              "expected": {
+                                "type": "string",
+                                "enum": ["string", "array", "object", "hypothesis", "decision", "valid value"]
+                              },
+                              "actual": {
+                                "type": "string",
+                                "enum": ["missing", "null", "string", "number", "boolean", "array", "object", "unknown"]
+                              }
+                            },
+                            "required": ["path", "expected", "actual"],
+                            "additionalProperties": false
+                          },
+                          "maxItems": 8
+                        },
+                        "request": {
+                          "type": "string",
+                          "maxLength": 128
+                        },
+                        "stage": {
+                          "type": "string",
+                          "enum": ["setup", "model", "response", "inspection", "validation", "persistence"]
+                        },
+                        "model": {
+                          "type": "string",
+                          "maxLength": 512
+                        },
+                        "status": {
+                          "type": "integer",
+                          "minimum": 100,
+                          "maximum": 599
+                        },
+                        "reason": {
+                          "type": "string",
+                          "enum": [
+                            "request-schema",
+                            "unsupported-format",
+                            "authentication",
+                            "permission",
+                            "credits",
+                            "rate-limit",
+                            "context-limit",
+                            "unavailable",
+                            "invalid-request",
+                            "network",
+                            "source-changed",
+                            "policy-changed",
+                            "storage",
+                            "accounting",
+                            "unknown"
+                          ]
+                        },
+                        "finish": {
+                          "type": "string",
+                          "enum": ["stop", "length", "content-filter", "tool-calls", "error", "other", "unknown"]
+                        },
+                        "usage": {
+                          "type": "object",
+                          "properties": {
+                            "input": {
+                              "type": "number"
+                            },
+                            "output": {
+                              "type": "number"
+                            },
+                            "cached": {
+                              "type": "number"
+                            },
+                            "milliseconds": {
+                              "type": "number"
+                            },
+                            "model": {
+                              "type": "string"
+                            },
+                            "measured": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": ["input", "output", "cached", "milliseconds", "model", "measured"],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": ["code", "schema", "issues"],
+                      "additionalProperties": false
                     },
                     "intent": {
                       "type": "string"
@@ -20363,12 +20523,31 @@
                           },
                           "optional": {
                             "type": "boolean"
+                          },
+                          "when": {
+                            "type": "object",
+                            "properties": {
+                              "question": {
+                                "type": "string"
+                              },
+                              "options": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                },
+                                "minItems": 1,
+                                "maxItems": 8
+                              }
+                            },
+                            "required": ["question", "options"],
+                            "additionalProperties": false,
+                            "description": "Show this question only when an earlier question with this ID is visible and its selected option matches one of these exact option strings. Omit or use null for questions that apply to every branch."
                           }
                         },
                         "required": ["id", "question", "impact", "options", "optional"],
                         "additionalProperties": false
                       },
-                      "maxItems": 3
+                      "maxItems": 12
                     },
                     "limitations": {
                       "type": "array",
@@ -20501,6 +20680,9 @@
                           "observed": {
                             "type": "integer",
                             "minimum": 0
+                          },
+                          "rejected": {
+                            "type": "boolean"
                           }
                         },
                         "required": ["id", "tool", "input", "output", "sources", "observed"],
@@ -20835,6 +21017,21 @@
                     },
                     "required": ["id", "revision"],
                     "additionalProperties": false
+                  },
+                  "resume": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9-]{36}$"
+                      },
+                      "revision": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9-]{36}$"
+                      }
+                    },
+                    "required": ["id", "revision"],
+                    "additionalProperties": false
                   }
                 },
                 "required": ["key", "text"],
@@ -20966,6 +21163,21 @@
                     },
                     "required": ["id", "revision"],
                     "additionalProperties": false
+                  },
+                  "resume": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9-]{36}$"
+                      },
+                      "revision": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9-]{36}$"
+                      }
+                    },
+                    "required": ["id", "revision"],
+                    "additionalProperties": false
                   }
                 },
                 "required": ["key", "text"],
@@ -21072,6 +21284,21 @@
                         },
                         "session": {
                           "type": "string"
+                        }
+                      },
+                      "required": ["id", "revision"],
+                      "additionalProperties": false
+                    },
+                    "resume": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "pattern": "^[a-f0-9-]{36}$"
+                        },
+                        "revision": {
+                          "type": "string",
+                          "pattern": "^[a-f0-9-]{36}$"
                         }
                       },
                       "required": ["id", "revision"],
@@ -21218,11 +21445,148 @@
                         "investigating",
                         "findings_ready",
                         "needs_input",
+                        "unstructured",
                         "limited",
                         "failed",
                         "cancelled",
                         "interrupted"
                       ]
+                    },
+                    "failure": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": ["schema", "json", "cutoff", "citation", "transport", "timeout", "cancelled"]
+                        },
+                        "schema": {
+                          "type": "string",
+                          "enum": ["forge-enhancement-v2"]
+                        },
+                        "issues": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "path": {
+                                "type": "array",
+                                "items": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "summary",
+                                        "objective",
+                                        "reuse",
+                                        "inspect",
+                                        "changes",
+                                        "constraints",
+                                        "hypotheses",
+                                        "acceptance",
+                                        "verification",
+                                        "evidence",
+                                        "questions",
+                                        "kind",
+                                        "question",
+                                        "impact",
+                                        "options",
+                                        "statement",
+                                        "reason",
+                                        "action",
+                                        "basis"
+                                      ]
+                                    },
+                                    {
+                                      "type": "integer",
+                                      "minimum": 0
+                                    }
+                                  ]
+                                },
+                                "maxItems": 6
+                              },
+                              "expected": {
+                                "type": "string",
+                                "enum": ["string", "array", "object", "hypothesis", "decision", "valid value"]
+                              },
+                              "actual": {
+                                "type": "string",
+                                "enum": ["missing", "null", "string", "number", "boolean", "array", "object", "unknown"]
+                              }
+                            },
+                            "required": ["path", "expected", "actual"],
+                            "additionalProperties": false
+                          },
+                          "maxItems": 8
+                        },
+                        "request": {
+                          "type": "string",
+                          "maxLength": 128
+                        },
+                        "stage": {
+                          "type": "string",
+                          "enum": ["setup", "model", "response", "inspection", "validation", "persistence"]
+                        },
+                        "model": {
+                          "type": "string",
+                          "maxLength": 512
+                        },
+                        "status": {
+                          "type": "integer",
+                          "minimum": 100,
+                          "maximum": 599
+                        },
+                        "reason": {
+                          "type": "string",
+                          "enum": [
+                            "request-schema",
+                            "unsupported-format",
+                            "authentication",
+                            "permission",
+                            "credits",
+                            "rate-limit",
+                            "context-limit",
+                            "unavailable",
+                            "invalid-request",
+                            "network",
+                            "source-changed",
+                            "policy-changed",
+                            "storage",
+                            "accounting",
+                            "unknown"
+                          ]
+                        },
+                        "finish": {
+                          "type": "string",
+                          "enum": ["stop", "length", "content-filter", "tool-calls", "error", "other", "unknown"]
+                        },
+                        "usage": {
+                          "type": "object",
+                          "properties": {
+                            "input": {
+                              "type": "number"
+                            },
+                            "output": {
+                              "type": "number"
+                            },
+                            "cached": {
+                              "type": "number"
+                            },
+                            "milliseconds": {
+                              "type": "number"
+                            },
+                            "model": {
+                              "type": "string"
+                            },
+                            "measured": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": ["input", "output", "cached", "milliseconds", "model", "measured"],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": ["code", "schema", "issues"],
+                      "additionalProperties": false
                     },
                     "intent": {
                       "type": "string"
@@ -21340,12 +21704,31 @@
                           },
                           "optional": {
                             "type": "boolean"
+                          },
+                          "when": {
+                            "type": "object",
+                            "properties": {
+                              "question": {
+                                "type": "string"
+                              },
+                              "options": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                },
+                                "minItems": 1,
+                                "maxItems": 8
+                              }
+                            },
+                            "required": ["question", "options"],
+                            "additionalProperties": false,
+                            "description": "Show this question only when an earlier question with this ID is visible and its selected option matches one of these exact option strings. Omit or use null for questions that apply to every branch."
                           }
                         },
                         "required": ["id", "question", "impact", "options", "optional"],
                         "additionalProperties": false
                       },
-                      "maxItems": 3
+                      "maxItems": 12
                     },
                     "limitations": {
                       "type": "array",
@@ -21478,6 +21861,9 @@
                           "observed": {
                             "type": "integer",
                             "minimum": 0
+                          },
+                          "rejected": {
+                            "type": "boolean"
                           }
                         },
                         "required": ["id", "tool", "input", "output", "sources", "observed"],
@@ -26387,6 +26773,10 @@
                             "type": "string",
                             "maxLength": 128
                           },
+                          "stage": {
+                            "type": "string",
+                            "enum": ["setup", "model", "response", "inspection", "validation", "persistence"]
+                          },
                           "model": {
                             "type": "string",
                             "maxLength": 512
@@ -26409,6 +26799,10 @@
                               "unavailable",
                               "invalid-request",
                               "network",
+                              "source-changed",
+                              "policy-changed",
+                              "storage",
+                              "accounting",
                               "unknown"
                             ]
                           },
@@ -27184,6 +27578,10 @@
                               "type": "string",
                               "maxLength": 128
                             },
+                            "stage": {
+                              "type": "string",
+                              "enum": ["setup", "model", "response", "inspection", "validation", "persistence"]
+                            },
                             "model": {
                               "type": "string",
                               "maxLength": 512
@@ -27206,6 +27604,10 @@
                                 "unavailable",
                                 "invalid-request",
                                 "network",
+                                "source-changed",
+                                "policy-changed",
+                                "storage",
+                                "accounting",
                                 "unknown"
                               ]
                             },
@@ -55268,6 +55670,10 @@
                 "type": "string",
                 "maxLength": 128
               },
+              "stage": {
+                "type": "string",
+                "enum": ["setup", "model", "response", "inspection", "validation", "persistence"]
+              },
               "model": {
                 "type": "string",
                 "maxLength": 512
@@ -55290,6 +55696,10 @@
                   "unavailable",
                   "invalid-request",
                   "network",
+                  "source-changed",
+                  "policy-changed",
+                  "storage",
+                  "accounting",
                   "unknown"
                 ]
               },

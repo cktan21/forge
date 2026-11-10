@@ -268,9 +268,10 @@ export const EnhancementFailure = Schema.Struct({
   schema: Schema.Literal("forge-enhancement-v2"),
   issues: Schema.Array(EnhancementIssue).check(Schema.isMaxLength(8)),
   request: Schema.optional(Schema.String.check(Schema.isMaxLength(128))),
+  stage: Schema.optional(Schema.Literals(["setup", "model", "response", "inspection", "validation", "persistence"])),
   model: Schema.optional(Schema.String.check(Schema.isMaxLength(512))),
   status: Schema.optional(Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 100, maximum: 599 }))),
-  reason: Schema.optional(Schema.Literals(["request-schema", "unsupported-format", "authentication", "permission", "credits", "rate-limit", "context-limit", "unavailable", "invalid-request", "network", "unknown"])),
+  reason: Schema.optional(Schema.Literals(["request-schema", "unsupported-format", "authentication", "permission", "credits", "rate-limit", "context-limit", "unavailable", "invalid-request", "network", "source-changed", "policy-changed", "storage", "accounting", "unknown"])),
   finish: Schema.optional(Schema.Literals(["stop", "length", "content-filter", "tool-calls", "error", "other", "unknown"])),
   usage: Schema.optional(Usage),
 })

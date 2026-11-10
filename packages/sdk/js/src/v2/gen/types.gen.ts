@@ -4180,6 +4180,7 @@ export type ForgeError = {
       actual: "missing" | "null" | "string" | "number" | "boolean" | "array" | "object" | "unknown"
     }>
     request?: string
+    stage?: "setup" | "model" | "response" | "inspection" | "validation" | "persistence"
     model?: string
     status?: number
     reason?:
@@ -4193,6 +4194,10 @@ export type ForgeError = {
       | "unavailable"
       | "invalid-request"
       | "network"
+      | "source-changed"
+      | "policy-changed"
+      | "storage"
+      | "accounting"
       | "unknown"
     finish?: "stop" | "length" | "content-filter" | "tool-calls" | "error" | "other" | "unknown"
     usage?: {
@@ -18579,6 +18584,7 @@ export type ForgeEnhanceStreamResponses = {
             actual: "missing" | "null" | "string" | "number" | "boolean" | "array" | "object" | "unknown"
           }>
           request?: string
+          stage?: "setup" | "model" | "response" | "inspection" | "validation" | "persistence"
           model?: string
           status?: number
           reason?:
@@ -18592,6 +18598,10 @@ export type ForgeEnhanceStreamResponses = {
             | "unavailable"
             | "invalid-request"
             | "network"
+            | "source-changed"
+            | "policy-changed"
+            | "storage"
+            | "accounting"
             | "unknown"
           finish?: "stop" | "length" | "content-filter" | "tool-calls" | "error" | "other" | "unknown"
           usage?: {
@@ -18660,6 +18670,10 @@ export type ForgeInvestigateData = {
       revision: string
       session?: string
     }
+    resume?: {
+      id: string
+      revision: string
+    }
   }
   path?: never
   query?: {
@@ -18700,6 +18714,10 @@ export type ForgeInvestigateResponses = {
       id: string
       revision: string
       session?: string
+    }
+    resume?: {
+      id: string
+      revision: string
     }
     edits?: Array<{
       before: string
@@ -18746,7 +18764,74 @@ export type ForgeInvestigateResponses = {
     }
     destination: string
     policy: string
-    state: "investigating" | "findings_ready" | "needs_input" | "limited" | "failed" | "cancelled" | "interrupted"
+    state:
+      | "investigating"
+      | "findings_ready"
+      | "needs_input"
+      | "unstructured"
+      | "limited"
+      | "failed"
+      | "cancelled"
+      | "interrupted"
+    failure?: {
+      code: "schema" | "json" | "cutoff" | "citation" | "transport" | "timeout" | "cancelled"
+      schema: "forge-enhancement-v2"
+      issues: Array<{
+        path: Array<
+          | "summary"
+          | "objective"
+          | "reuse"
+          | "inspect"
+          | "changes"
+          | "constraints"
+          | "hypotheses"
+          | "acceptance"
+          | "verification"
+          | "evidence"
+          | "questions"
+          | "kind"
+          | "question"
+          | "impact"
+          | "options"
+          | "statement"
+          | "reason"
+          | "action"
+          | "basis"
+          | number
+        >
+        expected: "string" | "array" | "object" | "hypothesis" | "decision" | "valid value"
+        actual: "missing" | "null" | "string" | "number" | "boolean" | "array" | "object" | "unknown"
+      }>
+      request?: string
+      stage?: "setup" | "model" | "response" | "inspection" | "validation" | "persistence"
+      model?: string
+      status?: number
+      reason?:
+        | "request-schema"
+        | "unsupported-format"
+        | "authentication"
+        | "permission"
+        | "credits"
+        | "rate-limit"
+        | "context-limit"
+        | "unavailable"
+        | "invalid-request"
+        | "network"
+        | "source-changed"
+        | "policy-changed"
+        | "storage"
+        | "accounting"
+        | "unknown"
+      finish?: "stop" | "length" | "content-filter" | "tool-calls" | "error" | "other" | "unknown"
+      usage?: {
+        input: number
+        output: number
+        cached: number
+        milliseconds: number
+        model: string
+        measured: boolean
+      }
+    }
     intent: string
     summary: string
     findings: Array<{
@@ -18768,6 +18853,13 @@ export type ForgeInvestigateResponses = {
       impact: string
       options: Array<string>
       optional: boolean
+      /**
+       * Show this question only when an earlier question with this ID is visible and its selected option matches one of these exact option strings. Omit or use null for questions that apply to every branch.
+       */
+      when?: {
+        question: string
+        options: Array<string>
+      }
     }>
     limitations: Array<string>
     observations: Array<{
@@ -18819,6 +18911,7 @@ export type ForgeInvestigateResponses = {
         }
       }>
       observed: number
+      rejected?: boolean
     }>
     journal?: Array<{
       request: string
@@ -18893,6 +18986,10 @@ export type ForgeInvestigateStreamData = {
       id: string
       revision: string
       session?: string
+    }
+    resume?: {
+      id: string
+      revision: string
     }
   }
   path?: never
@@ -18970,6 +19067,10 @@ export type ForgeInvestigationResponses = {
       revision: string
       session?: string
     }
+    resume?: {
+      id: string
+      revision: string
+    }
     edits?: Array<{
       before: string
       after: string
@@ -19015,7 +19116,74 @@ export type ForgeInvestigationResponses = {
     }
     destination: string
     policy: string
-    state: "investigating" | "findings_ready" | "needs_input" | "limited" | "failed" | "cancelled" | "interrupted"
+    state:
+      | "investigating"
+      | "findings_ready"
+      | "needs_input"
+      | "unstructured"
+      | "limited"
+      | "failed"
+      | "cancelled"
+      | "interrupted"
+    failure?: {
+      code: "schema" | "json" | "cutoff" | "citation" | "transport" | "timeout" | "cancelled"
+      schema: "forge-enhancement-v2"
+      issues: Array<{
+        path: Array<
+          | "summary"
+          | "objective"
+          | "reuse"
+          | "inspect"
+          | "changes"
+          | "constraints"
+          | "hypotheses"
+          | "acceptance"
+          | "verification"
+          | "evidence"
+          | "questions"
+          | "kind"
+          | "question"
+          | "impact"
+          | "options"
+          | "statement"
+          | "reason"
+          | "action"
+          | "basis"
+          | number
+        >
+        expected: "string" | "array" | "object" | "hypothesis" | "decision" | "valid value"
+        actual: "missing" | "null" | "string" | "number" | "boolean" | "array" | "object" | "unknown"
+      }>
+      request?: string
+      stage?: "setup" | "model" | "response" | "inspection" | "validation" | "persistence"
+      model?: string
+      status?: number
+      reason?:
+        | "request-schema"
+        | "unsupported-format"
+        | "authentication"
+        | "permission"
+        | "credits"
+        | "rate-limit"
+        | "context-limit"
+        | "unavailable"
+        | "invalid-request"
+        | "network"
+        | "source-changed"
+        | "policy-changed"
+        | "storage"
+        | "accounting"
+        | "unknown"
+      finish?: "stop" | "length" | "content-filter" | "tool-calls" | "error" | "other" | "unknown"
+      usage?: {
+        input: number
+        output: number
+        cached: number
+        milliseconds: number
+        model: string
+        measured: boolean
+      }
+    }
     intent: string
     summary: string
     findings: Array<{
@@ -19037,6 +19205,13 @@ export type ForgeInvestigationResponses = {
       impact: string
       options: Array<string>
       optional: boolean
+      /**
+       * Show this question only when an earlier question with this ID is visible and its selected option matches one of these exact option strings. Omit or use null for questions that apply to every branch.
+       */
+      when?: {
+        question: string
+        options: Array<string>
+      }
     }>
     limitations: Array<string>
     observations: Array<{
@@ -19088,6 +19263,7 @@ export type ForgeInvestigationResponses = {
         }
       }>
       observed: number
+      rejected?: boolean
     }>
     journal?: Array<{
       request: string
@@ -20542,6 +20718,7 @@ export type ForgeRequestsResponses = {
         actual: "missing" | "null" | "string" | "number" | "boolean" | "array" | "object" | "unknown"
       }>
       request?: string
+      stage?: "setup" | "model" | "response" | "inspection" | "validation" | "persistence"
       model?: string
       status?: number
       reason?:
@@ -20555,6 +20732,10 @@ export type ForgeRequestsResponses = {
         | "unavailable"
         | "invalid-request"
         | "network"
+        | "source-changed"
+        | "policy-changed"
+        | "storage"
+        | "accounting"
         | "unknown"
       finish?: "stop" | "length" | "content-filter" | "tool-calls" | "error" | "other" | "unknown"
       usage?: {
@@ -20823,6 +21004,7 @@ export type ForgeRequestResponses = {
           actual: "missing" | "null" | "string" | "number" | "boolean" | "array" | "object" | "unknown"
         }>
         request?: string
+        stage?: "setup" | "model" | "response" | "inspection" | "validation" | "persistence"
         model?: string
         status?: number
         reason?:
@@ -20836,6 +21018,10 @@ export type ForgeRequestResponses = {
           | "unavailable"
           | "invalid-request"
           | "network"
+          | "source-changed"
+          | "policy-changed"
+          | "storage"
+          | "accounting"
           | "unknown"
         finish?: "stop" | "length" | "content-filter" | "tool-calls" | "error" | "other" | "unknown"
         usage?: {
