@@ -12,7 +12,8 @@ const Credentials = Schema.Struct({
 
 export function account(value: unknown, now = Date.now()) {
   const result = Schema.decodeUnknownOption(Credentials)(value)
-  if (Option.isNone(result)) throw new Error("A valid OpenAI ChatGPT OAuth credential is required; API keys are not accepted")
+  if (Option.isNone(result))
+    throw new Error("A valid OpenAI ChatGPT OAuth credential is required; API keys are not accepted")
   const auth = result.value
   // Avoid rotating a shared account's refresh token in a disposable benchmark home.
   if (auth.openai.expires < now + 3_600_000)

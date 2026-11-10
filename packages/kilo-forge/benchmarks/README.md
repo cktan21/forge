@@ -80,6 +80,19 @@ Only named GPT models on the direct `openai` provider with zero backend input/ou
 
 ## Optional Live Evaluator
 
+For a GPT-5.x **enhancement** study, distinct from coding-tool availability:
+
+```sh
+FORGE_EVAL_MODEL=openai/gpt-5.6-sol FORGE_EVAL_TRIALS=1 \
+bun run evaluate:preparation /absolute/path/to/new-preparation-results
+```
+
+`preparation.ts` runs version 5 with raw, generic, and Forge preparation arms. It invokes the real `/forge/enhance` endpoint with the selected model and validates its citations. All arms then use identical standard coding tools, with Forge coding tools disabled. The generic baseline uses the existing rewrite instruction with ChatGPT-compatible streaming transport.
+
+Four documented-contract variants move the existing full task requirements into repository documentation and provide the same short task to each arm. Every coding agent can read those documents. The original private checks/reference implementations are retained and preflighted. This tests local evidence-grounded preparation, not a held-out production benchmark, prompt-enhancement usability, or external/semantic RAG.
+
+Choose only an account-supported GPT-5.x model. One trial is 12 workflow attempts per model, with eight preparation calls. Preserve blocked preparations and report their elapsed time and usage; never silently retry a paid or subscription call. The protocol and task/dataset hashes must accompany comparisons. The production generic and Forge preparation budgets differ and must be disclosed.
+
 `evaluate.ts`, `harness.ts`, `repositories.ts`, `tasks.ts`, and `grading.ts` retain a small, reusable comparison of normal Kilo, generic enhancement, and Forge. `report.ts` and `assessment.ts` validate descriptive results and optional manually supplied evidence/intent labels. No statistical superiority decision or historical acceptance replay remains.
 
 Set `FORGE_EVAL_INVESTIGATIVE=1` for a four-arm, version-3 comparison: raw Kilo, generic rewrite, retrieval-backed Forge, and investigative Forge. All four arms then use identical standard coding tools, with Forge coding tools disabled. A common excluded `.kilo/forge.jsonc` enables investigation in every disposable fixture. The original task dataset remains recorded separately from this harness configuration.

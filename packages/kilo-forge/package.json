@@ -14,7 +14,8 @@
     "evaluate": "bun benchmarks/evaluate.ts",
     "evaluate:tools": "bun benchmarks/ablation.ts",
     "evaluate:free": "bun benchmarks/free.ts",
-    "evaluate:chatgpt": "bun benchmarks/chatgpt.ts"
+    "evaluate:chatgpt": "bun benchmarks/chatgpt.ts",
+    "evaluate:preparation": "bun benchmarks/preparation.ts"
   },
   "dependencies": {
     "@kilocode/sdk": "workspace:*",

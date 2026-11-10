@@ -200,6 +200,7 @@ for (const scenario of [
   "ready",
   "tools",
   "tools-cost",
+  "preparation",
   "investigative",
   "malformed",
   "missing",
@@ -225,6 +226,7 @@ for (const scenario of [
   test(`offline runner preserves comparable attempts and accounting: ${scenario}`, async () => {
     const task = tasks.at(0)!
     const ablation = scenario.startsWith("tools")
+    const preparation = scenario === "preparation"
     const model = settings.model!
     const split = model.indexOf("/")
     const reference = { providerID: model.slice(0, split), modelID: model.slice(split + 1) }
@@ -258,7 +260,7 @@ for (const scenario of [
       ...reference,
       time: { created: 1, completed: 2 },
       tokens: { input: 200, output: 30, reasoning: 0, cache: { read: 0, write: 0 } },
-      cost: scenario === "tools" ? 0 : 0.001,
+      cost: scenario === "tools" || preparation ? 0 : 0.001,
       ...(scenario === "zero-coding" || scenario === "explicit-zero-coding" ? missing : {}),
     }
     const draft = {
@@ -329,7 +331,7 @@ for (const scenario of [
             all: [
               {
                 id: reference.providerID,
-                models: { [reference.modelID]: ablation
+                models: { [reference.modelID]: ablation || preparation
                   ? { id: reference.modelID, isFree: true, cost: { input: 0, output: 0, cache: { read: 0, write: 0 } } }
                   : { cost: { input: 1, output: 2, cache: { read: 0.5, write: 1 } } } },
               },
@@ -511,6 +513,7 @@ for (const scenario of [
         limit: 1,
         investigative: scenario === "investigative",
         tools: ablation,
+        preparation,
       })
       if (scenario === "quota" || scenario === "coding-timeout" || scenario === "tools-cost" || scenario.startsWith("history-503"))
         await rejects(run, /partial report saved/)
@@ -539,7 +542,7 @@ for (const scenario of [
           state: string
         }>
       } = await Bun.file(path.join(output, "results.json")).json()
-      expect(result.version).toBe(ablation ? 4 : scenario === "investigative" ? 3 : 2)
+      expect(result.version).toBe(preparation ? 5 : ablation ? 4 : scenario === "investigative" ? 3 : 2)
       expect(result.provenance.revision).toMatch(/^[a-f0-9]{40}$/)
       expect(result.provenance.configuration).toHaveLength(64)
       expect(result.provenance.harness).toHaveLength(64)
@@ -551,7 +554,7 @@ for (const scenario of [
         expect(item.text).toContain(task.prompt)
         if (item.arm === "normal" || ablation) expect(item.text).toBe(task.prompt)
         expect(item.model).toEqual(reference)
-        expect(Object.values(item.tools).every((value) => value === (scenario !== "investigative" && item.arm === "forge"))).toBe(true)
+        expect(Object.values(item.tools).every((value) => value === (!preparation && scenario !== "investigative" && item.arm === "forge"))).toBe(true)
       }
       const last = result.rows.at(-1)!
       if (scenario.startsWith("history-503")) {
@@ -668,6 +671,11 @@ for (const scenario of [
         expect(last.failure).toBe("infrastructure")
         expect(last.error).toContain("nonzero model cost")
         expect(summary.comparison?.pairs).toBe(0)
+      } else if (preparation) {
+        expect(prompts.map((item) => item.arm)).toEqual(["normal", "generic", "forge"])
+        expect(summary.text).toContain("Preparation-only comparison")
+        expect(result.rows.every((row) => row.known.preparation && row.known.coding)).toBe(true)
+        expect(summary.arms.map((arm) => arm.tokens)).toEqual([230, 350, 350])
       } else {
         expect(prompts).toHaveLength(3)
         expect(last.tokens).toBe(350)

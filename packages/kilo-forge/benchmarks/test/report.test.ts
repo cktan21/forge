@@ -111,6 +111,16 @@ test("three-arm reports compare complete triples and retain provenance", () => {
   expect(summarize({ ...triple, rows: report.rows }, true).arms.every((arm) => arm.runs === 0)).toBe(true)
 })
 
+test("preparation-only reports retain three arms and reject Forge coding-tool contamination", () => {
+  const value = { ...triple, version: 5, billing: "chatgpt-subscription" }
+  expect(summarize(value).text).toContain("Preparation-only comparison")
+  expect(summarize(value).arms).toHaveLength(3)
+  expect(() => summarize({
+    ...value,
+    rows: value.rows.map((row) => ({ ...row, tools: row.arm === "forge" ? [{ tool: "forge_search_code", status: "completed" }] : [] })),
+  })).toThrow("baseline used a Forge tool")
+})
+
 test("four-arm reports require matched groups and equal standard coding tools", () => {
   const value = { ...triple, version: 3, arms: ["normal", "generic", "forge", "investigative"], rows: [...triple.rows, { ...report.rows.at(0)!, arm: "investigative" }] }
   const result = summarize(value)

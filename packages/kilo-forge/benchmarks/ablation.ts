@@ -22,11 +22,7 @@ export function subscription(model: Pick<Model, "id" | "autoRouting" | "cost"> |
 }
 
 function zero(cost: Model["cost"]) {
-  const rates = [
-    cost,
-    ...(cost.tiers ?? []),
-    ...(cost.experimentalOver200K ? [cost.experimentalOver200K] : []),
-  ]
+  const rates = [cost, ...(cost.tiers ?? []), ...(cost.experimentalOver200K ? [cost.experimentalOver200K] : [])]
   if (rates.some((rate) => [rate.input, rate.output, rate.cache?.read, rate.cache?.write].some((value) => value !== 0)))
     throw new Error("Tools-only evaluation refuses paid or unknown model pricing")
 }

@@ -29,6 +29,7 @@ import { Prepared, type PreparationBinding } from "../src/writing"
 import { metadata as handoff } from "../src/handoff"
 import { variants } from "./harness"
 import { arms as paired, free, subscription, plugins, order as alternate, tools as forge } from "./ablation"
+import type { Task } from "./tasks"
 
 type Row = {
   task: string
@@ -123,7 +124,7 @@ function observed(item: AssistantMessage) {
 }
 
 export async function evaluate(
-  input: { base?: string; password?: string; trials?: number; limit?: number; manifest?: string; investigative?: boolean; tools?: boolean; output?: string; subscription?: boolean } = {},
+  input: { base?: string; password?: string; trials?: number; limit?: number; manifest?: string; investigative?: boolean; tools?: boolean; output?: string; subscription?: boolean; preparation?: boolean; tasks?: Task[] } = {},
 ) {
   const base = input.base ?? process.env.FORGE_EVAL_URL
   const password = input.password ?? process.env.FORGE_EVAL_PASSWORD
@@ -139,7 +140,7 @@ export async function evaluate(
     url.hash
   )
     throw new Error("Evaluation requires a loopback backend")
-  const loaded = await load(input.manifest ?? process.env.FORGE_EVAL_MANIFEST)
+  const loaded = input.tasks ? { tasks: input.tasks, dataset: dataset(input.tasks) } : await load(input.manifest ?? process.env.FORGE_EVAL_MANIFEST)
   const trials = input.trials ?? Number(process.env.FORGE_EVAL_TRIALS ?? 2)
   const limit = input.limit ?? Number(process.env.FORGE_EVAL_TASKS ?? loaded.tasks.length)
   if (
@@ -154,7 +155,9 @@ export async function evaluate(
   }
   const investigative = input.investigative ?? process.env.FORGE_EVAL_INVESTIGATIVE === "1"
   const tools = input.tools ?? process.env.FORGE_EVAL_TOOLS === "1"
-  if (input.subscription && !tools) throw new Error("Subscription evaluation is restricted to tools-only comparisons")
+  const preparation = input.preparation ?? false
+  if (preparation && (tools || investigative)) throw new Error("Preparation-only evaluation requires the three-arm enhancement protocol")
+  if (input.subscription && !tools && !preparation) throw new Error("Subscription evaluation requires a tools-only or preparation-only comparison")
   const billing = input.subscription ? "chatgpt-subscription" : "free"
   if (tools && investigative) throw new Error("Tools-only and investigative evaluation cannot be combined")
   const tasks = loaded.tasks.slice(0, limit).map((task) => investigative
@@ -204,7 +207,7 @@ export async function evaluate(
   await writeFile(path.join(output, "model.json"), JSON.stringify({
     provider: reference.providerID, id: selected?.id, api: selected?.api, cost: selected?.cost, isFree: selected?.isFree,
   }, null, 2))
-  if (tools) {
+  if (tools || preparation) {
     if (input.subscription) subscription(selected, reference.providerID)
     if (!input.subscription) free(selected)
   }
@@ -225,14 +228,14 @@ export async function evaluate(
     harness: hash(
       (
         await Promise.all(
-          ["evaluate.ts", "harness.ts", "grading.ts", "tasks.ts", "repositories.ts", "ablation.ts", "free.ts", "chatgpt.ts"].map((file) =>
+          ["evaluate.ts", "harness.ts", "grading.ts", "tasks.ts", "repositories.ts", "ablation.ts", "free.ts", "chatgpt.ts", "preparation.ts"].map((file) =>
             Bun.file(path.join(import.meta.dir, file)).text(),
           ),
         )
       ).join("\n"),
     ),
     preparation: tools ? null : {
-      generic: { model: config.small_model, temperature: 0.7, retries: 3, outputLimit: "provider default" },
+      generic: { model: config.small_model, temperature: input.subscription ? "provider default" : 0.7, retries: input.subscription ? 0 : 3, outputLimit: input.subscription ? 5000 : "provider default" },
       forge: { model: config.small_model, temperature: 0.1, retries: 0, outputLimit: 12000 },
       ...(investigative ? { investigative: { model, turns: 12, calls: 24, retries: 0, outputLimit: 4000, selection: "Select the first non-contradicted finding. Required questions and empty findings are blocked outcomes; no second attempt." } } : {}),
     },
@@ -240,7 +243,7 @@ export async function evaluate(
   console.log(`Results: ${output}`)
   const save = async () => {
     const report = {
-      version: tools ? 4 : investigative ? 3 : 2,
+      version: preparation ? 5 : tools ? 4 : investigative ? 3 : 2,
       started,
       model,
       trials,
@@ -251,6 +254,7 @@ export async function evaluate(
       pricing,
       arms: tools ? paired : investigative ? variants : arms,
       ...(tools ? { comparison: "tools-only", billing, treatment: [...forge], free: { verified: !input.subscription, model: selected?.id, pricing } } : {}),
+      ...(preparation ? { comparison: "preparation-only", billing, treatment: "/forge/enhance with selected repository evidence" } : {}),
       provenance,
       baseline,
       rows,
@@ -271,8 +275,9 @@ export async function evaluate(
             : "Free model status and zero input/output/cache prices are required before each attempt. Advertised rates and reported usage are not a provider invoice.",
           "Tool availability is the treatment; the model chooses whether to use Forge. Zero Forge calls means no observed tool use, not evidence of the tools' efficacy when used.",
         ] : [
-        "Generic uses the unchanged existing enhancer via /forge/baseline and standard coding tools; the original request remains authoritative.",
+        "Generic uses the existing enhancer via /forge/baseline with OAuth-compatible request preparation; the original request remains authoritative.",
         investigative ? "All four arms use the same standard coding tools. Forge tools are disabled during coding to isolate preparation quality. A common excluded .kilo/forge.jsonc enables the workshop in every disposable fixture."
+          : preparation ? "All three arms use identical standard coding tools with Forge coding tools disabled. The Forge treatment explicitly invokes /forge/enhance and submits the validated prompt plus cited local context. Repository documentation is available to all arms. No external docs or embeddings."
           : "Forge includes repository preparation, selected evidence, and optional Forge tools; no external docs or embeddings.",
         ]),
         "Per-run end-to-end latency includes setup, preparation and coding, but excludes independent grading and server startup.",
@@ -298,7 +303,7 @@ export async function evaluate(
     for (const [index, task] of tasks.entries()) {
       // Counterbalance order across tasks and repetitions to reduce cache/order bias.
       for (const arm of tools ? alternate(index, trial) : order(index, trial, investigative)) {
-        if (tools) {
+        if (tools || preparation) {
           const current = (await client.provider.list({ directory: output }, options)).data
           const selected = current.all.find((item) => item.id === reference.providerID)?.models[reference.modelID]
           if (input.subscription) subscription(selected, reference.providerID)
@@ -408,7 +413,7 @@ export async function evaluate(
                 }
                 const proposal = (
                   await client.forge.enhance(
-                    { directory: root, text: task.prompt, session: row.session },
+                    { directory: root, text: task.prompt, session: row.session, model: reference },
                     { ...options, signal },
                   )
                 ).data
@@ -447,7 +452,7 @@ export async function evaluate(
                   sessionID: row.session!,
                   agent: "build",
                   model: reference,
-                  tools: Object.fromEntries(forge.map((key) => [key, !investigative && arm === "forge"])),
+                  tools: Object.fromEntries(forge.map((key) => [key, !investigative && !preparation && arm === "forge"])),
                   parts: [{ type: "text", text: prompt, ...(binding ? { metadata: handoff(binding) } : {}) }],
                 },
                 { ...options, signal: AbortSignal.timeout(240000) },
@@ -591,13 +596,13 @@ export async function evaluate(
               : [],
           ),
         )
-        if (tools && arm === "normal" && row.tools.some((item) => item.tool.startsWith("forge_"))) {
+        if (((tools && arm === "normal") || preparation) && row.tools.some((item) => item.tool.startsWith("forge_"))) {
           row.error ||= "Baseline attempted a Forge tool; comparison is contaminated"
           row.failure = "infrastructure"
         }
         if (tools && arm === "forge" && !row.tools.some((item) => item.tool.startsWith("forge_") && item.status === "completed"))
           row.warnings.push("Forge tools were available but no completed Forge tool use was observed.")
-        if (tools && stats.cost > 0) {
+        if ((tools || preparation) && stats.cost > 0) {
           row.error ||= "Free-only evaluation observed nonzero model cost; refusing further attempts"
           row.failure = "infrastructure"
         }

@@ -5,16 +5,21 @@ import { summarize } from "./report"
 import { describe } from "./harness"
 import { account } from "./chatgpt"
 import { plugins } from "./ablation"
+import type { Task } from "./tasks"
 
 // Only the explicit ChatGPT entry point imports a credential; neither inherits API keys or custom configuration.
-export async function run(input: { subscription?: boolean } = {}) {
+export async function run(input: { subscription?: boolean; preparation?: boolean; tasks?: Task[] } = {}) {
   if (input.subscription && !process.env.FORGE_EVAL_MODEL)
     throw new Error("Set FORGE_EVAL_MODEL to a GPT model supported by your ChatGPT account")
   const model = process.env.FORGE_EVAL_MODEL ?? "kilo/cohere/north-mini-code:free"
   const provider = input.subscription ? "openai" : "kilo"
   if (!model.startsWith(`${provider}/`)) throw new Error(`This launcher requires the ${provider} provider`)
   const auth = input.subscription
-    ? account(await Bun.file(path.join(process.env.XDG_DATA_HOME ?? path.join(homedir(), ".local/share"), "kilo/auth.json")).json())
+    ? account(
+        await Bun.file(
+          path.join(process.env.XDG_DATA_HOME ?? path.join(homedir(), ".local/share"), "kilo/auth.json"),
+        ).json(),
+      )
     : {}
   process.env.FORGE_EVAL_MODEL = model
   const { evaluate, settings } = await import("./evaluate")
@@ -49,7 +54,11 @@ export async function run(input: { subscription?: boolean } = {}) {
     KILO_DISABLE_LSP_DOWNLOAD: "1",
     KILO_NO_DAEMON: "1",
     KILO_TELEMETRY_LEVEL: "off",
-    KILO_CONFIG_CONTENT: JSON.stringify({ ...settings, ...(input.subscription ? { plugin: plugins } : {}), enabled_providers: [provider] }),
+    KILO_CONFIG_CONTENT: JSON.stringify({
+      ...settings,
+      ...(input.subscription ? { plugin: plugins } : {}),
+      enabled_providers: [provider],
+    }),
   }
   const child = Bun.spawn(
     [
@@ -86,7 +95,9 @@ export async function run(input: { subscription?: boolean } = {}) {
       base,
       password,
       output,
-      tools: true,
+      tools: !input.preparation,
+      preparation: input.preparation,
+      tasks: input.tasks,
       subscription: input.subscription,
       investigative: false,
       trials: Number(process.env.FORGE_EVAL_TRIALS ?? 2),

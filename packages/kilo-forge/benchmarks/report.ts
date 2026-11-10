@@ -55,7 +55,7 @@ export function summarize(value: unknown, partial = false, assessments?: unknown
   for (const count of [report.trials, report.tasks]) {
     if (!Number.isSafeInteger(count) || count < 1) throw new Error("Invalid planned task or trial count")
   }
-  if (report.version != null && ![1, 2, 3, 4].includes(report.version)) throw new Error("Unsupported report version")
+  if (report.version != null && ![1, 2, 3, 4, 5].includes(report.version)) throw new Error("Unsupported report version")
   const dataset =
     report.dataset === undefined
       ? null
@@ -96,7 +96,7 @@ export function summarize(value: unknown, partial = false, assessments?: unknown
     )
   )
     throw new Error("Repository subset provenance requires a repository, full revision and unique selected file paths")
-  const expected = report.version === 3 ? variants : report.version === 2 ? legacy : (["normal", "forge"] as const)
+  const expected = report.version === 3 ? variants : report.version === 2 || report.version === 5 ? legacy : (["normal", "forge"] as const)
   if (report.arms && (report.arms.length !== expected.length || expected.some((arm) => !report.arms!.includes(arm))))
     throw new Error("Report arm declarations do not match its version")
   const observed = report.rows.map((row) => {
@@ -152,7 +152,7 @@ export function summarize(value: unknown, partial = false, assessments?: unknown
     if (report.version === 4 && (row.preparation !== 0 || row.prepared.input !== 0 || row.prepared.output !== 0))
       throw new Error("Tools-only comparison must not include prompt preparation")
     if (
-      (report.version === 3 || row.arm !== "forge") &&
+      (report.version === 3 || report.version === 5 || row.arm !== "forge") &&
       row.tools?.some((tool) => tool.tool.startsWith("forge_") && (report.version === 4 || tool.status === "completed"))
     ) {
       throw new Error(`${row.arm === "normal" ? "Normal" : "Generic"} baseline used a Forge tool`)
@@ -375,14 +375,18 @@ export function summarize(value: unknown, partial = false, assessments?: unknown
     "",
     `Recorded ${observed.length} attempts over ${new Set(observed.map((row) => row.task)).size} tasks; ${rows.length} attempts form comparable ${units}. Requested ${report.trials} trial(s) per arm and task. Fixture digest: \`${report.fixture}\`.`,
     "",
-    report.version === 4
+    report.version === 5
+      ? "Preparation-only comparison: normal submits the raw task; generic submits an OAuth-compatible repository-blind rewrite; Forge explicitly calls /forge/enhance and submits a validated prompt plus retrieved local evidence. All three arms disable Forge coding tools. Repository documents are available to every coding agent."
+      : report.version === 4
       ? "Tools-only ablation: both arms receive the exact same raw task, with no prompt enhancement or investigation. Normal disables the four Forge coding tools; Forge enables them. The model chooses which tools to use."
       : expected.length === 4
       ? "Four preparation arms share identical standard coding tools. Investigative Forge records findings, selects the first non-contradicted direction under a predeclared protocol, writes and validates its prompt, and submits structured provenance. Empty findings and required clarifications remain blocked outcomes."
       : expected.length === 3
       ? "Normal uses the raw task and standard Kilo coding tools. Generic uses the unchanged existing enhancer and standard tools. Forge uses its real enhancement endpoint, validates the evidence, then submits the prepared prompt plus cited context with Forge tools available. Enhanced arms preserve the authoritative original request."
       : "Normal uses the raw task and standard Kilo tools. Forge uses preparation, freshness validation and cited context with Forge tools available. This legacy report contains no generic-enhancer arm.",
-    report.version === 4
+    report.version === 5
+      ? "All arms use identical initial file hashes, fresh directories/sessions, the same GPT-5.x subscription model, 16 coding steps, a 240-second coding deadline, and a separate 120-second preparation deadline. Preparation time and usage count toward totals."
+      : report.version === 4
       ? `Both arms use identical initial file hashes, fresh directories/sessions, the same named model, 16 coding steps and a 240-second coding deadline. ${report.billing === "chatgpt-subscription" ? "The isolated ChatGPT launcher uses the existing OAuth subscription allowance, not a free-model promotion or pay-as-you-go API key. Zero backend rates are checked before each attempt; this does not measure remaining subscription quota." : "Free status and zero advertised prices are checked before each attempt."}`
       : report.version === 3
       ? "All arms use identical initial files, fresh sessions, the same requested coding model, 16 coding steps and a 240-second coding deadline. Investigative preparation uses at most 12 turns plus one writer call. All preparation and coding attempts count toward resource totals."
@@ -404,7 +408,7 @@ export function summarize(value: unknown, partial = false, assessments?: unknown
     ...report.limitations.map((item) => `- ${item}`),
     "- No statistical significance is claimed from this small sample. Latency reflects gateway load and may be noisy.",
     "- Recorded assistant turns are not a count of underlying HTTP retries. Fixture copying, independent grading, and backend startup are outside per-attempt timing.",
-    report.version === 2 || report.version === 3 || report.version === 4
+    report.version === 2 || report.version === 3 || report.version === 4 || report.version === 5
       ? "- Failed phases retain elapsed time. Interrupted in-flight rows remain explicitly incomplete; unreported usage is unknown."
       : "- Legacy reports did not reliably measure failed-phase duration or missing usage. Zero phase times on failed calls are not evidence of free preparation.",
     "- The test does not measure architecture understanding, opportunity discovery, graph usability, or performance on large production repositories.",
