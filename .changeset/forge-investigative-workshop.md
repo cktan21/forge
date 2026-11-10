@@ -19,3 +19,5 @@ Open the scoped browser inspector explicitly with Ctrl+B from the terminal overv
 Keep `/enhance` review controls visible in small terminals, collapse detailed evidence, and support Enter through clarification, prompt writing, and staging without automatically sending to chat.
 
 Make investigative clarification choices selectable and support custom answers for each question. Preserve answers through navigation, cancellation, failed requests, and follow-up investigations.
+
+Support investigation and prompt writing through the built-in ChatGPT login, retain source-sharing safeguards, and explain when the selected model is unavailable to the account.

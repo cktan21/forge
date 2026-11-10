@@ -1,5 +1,5 @@
 import { Context, Effect, Exit, Layer } from "effect"
-import { generateText, Output, parsePartialJson, streamText } from "ai"
+import { Output, parsePartialJson } from "ai"
 import { realpath } from "node:fs/promises"
 import path from "node:path"
 import { Database } from "@opencode-ai/core/database/database"
@@ -29,6 +29,7 @@ import { references } from "@kilocode/forge/references"
 import { contract } from "@kilocode/forge/preparation"
 import { EnhancementError, failure } from "@kilocode/forge/enhancement"
 import { wait } from "@kilocode/forge/wait"
+import { complete, protocol } from "./completion"
 import { transport } from "./failure"
 import { format } from "./format"
 
@@ -108,6 +109,8 @@ export const layer = Layer.effect(Service, Effect.gen(function* () {
             : (yield* provider.getSmallModel(ref.providerID)) ?? (yield* provider.getModel(ref.providerID, ref.modelID))
           if (input.provider && input.provider !== model.providerID) throw new Error("Preparation provider changed. Review source sharing before retrying.")
           const language = yield* provider.getLanguage(model)
+          const current = yield* provider.getProvider(model.providerID)
+          const adapter = protocol(current?.options)
           const mode = format(model)
           const schema = input.purpose === "enhance" ? contract(input.evidence) : undefined
           const system = schema && mode === "prompt"
@@ -116,69 +119,63 @@ export const layer = Layer.effect(Service, Effect.gen(function* () {
           const started = Date.now()
           const capture = yield* Effect.promise(() => Trace.start({ root, session: input.session, purpose: input.purpose, model: `${model.providerID}/${model.id}`, system: [system], messages: [{ role: "user", content: input.prompt }], options: schema ? { enhancementFormat: mode } : undefined, request: input.request }))
           if (!capture) throw new Error("Preparation accounting capture is unavailable. No model request was made.")
+          const controller = new AbortController()
+          const signal = AbortSignal.any([controller.signal, ...input.signal ? [input.signal] : []])
           const options = {
             model: language,
             system,
             prompt: input.prompt,
             temperature: model.capabilities.temperature ? 0.1 : undefined,
             providerOptions: ProviderTransform.providerOptions(model, model.options),
-            abortSignal: input.signal,
+            abortSignal: signal,
             maxOutputTokens: Math.min(input.purpose === "enhance" ? 12_000 : 5000, model.limit.output),
             maxRetries: input.purpose === "enhance" ? 0 : 1,
           }
           const invoke = async () => {
-            if (input.purpose !== "enhance") return generateText(options)
+            if (input.purpose !== "enhance") {
+              const result = await complete(options, adapter)
+              return { ...result, usage: result.totalUsage }
+            }
             if (mode === "prompt") input.update?.({ type: "progress", stage: "Using JSON text for the auto-routed model; the complete response will still be validated locally" })
             input.update?.({ type: "progress", stage: `Waiting for ${model.providerID}/${model.id}` })
-            const result = streamText({
+            const result = await complete({
               ...options,
               ...(schema && mode === "schema" ? { output: Output.object({ schema, name: "forge_enhancement" }) } : {}),
-              onError: ({ error }) => {
-                const report = transport(error, input.signal).failure
-                log.warn("Enhancement stream failed", { model: `${model.providerID}/${model.id}`, code: report.code, reason: report.reason, status: report.status })
-              },
+            }, {
+              ...adapter, stream: true, chars: 100_000,
+              update: input.update && (async (chunk) => {
+                if (chunk.type === "reasoning") {
+                  input.update?.({ type: "progress", stage: `${model.providerID}/${model.id} is preparing a response` })
+                  return
+                }
+                const parsed = await parsePartialJson(chunk.text)
+                const value = parsed.value
+                if (!value || typeof value !== "object" || Array.isArray(value)) return
+                const preview = [
+                  typeof value.objective === "string" ? value.objective : "",
+                  ...(Array.isArray(value.changes) ? value.changes.filter((item): item is string => typeof item === "string").map((item) => `- ${item}`) : []),
+                ].filter(Boolean).join("\n")
+                input.update?.({
+                  type: "progress",
+                  stage: `${model.providerID}/${model.id} is writing the improved prompt`,
+                  summary: typeof value.summary === "string" ? value.summary.slice(0, 2000) : undefined,
+                  preview: preview.slice(0, 12_000),
+                })
+              }),
             })
-            let text = ""
-            let updated = 0
-            for await (const chunk of result.fullStream) {
-              input.signal?.throwIfAborted()
-              if (chunk.type === "error") throw chunk.error
-              if (chunk.type === "reasoning-start") {
-                input.update?.({ type: "progress", stage: `${model.providerID}/${model.id} is preparing a response` })
-              }
-              // Only the public explanation and draft are displayed, not reasoning deltas.
-              if (chunk.type !== "text-delta") continue
-              text += chunk.text
-              if (text.length > 100_000) throw new EnhancementError("The model response exceeded the enhancement size limit. Your prompt was kept.", failure("cutoff"))
-              if (!input.update || Date.now() - updated < 80) continue
-              updated = Date.now()
-              const parsed = await parsePartialJson(text)
-              const value = parsed.value
-              if (!value || typeof value !== "object" || Array.isArray(value)) continue
-              const preview = [
-                typeof value.objective === "string" ? value.objective : "",
-                ...(Array.isArray(value.changes) ? value.changes.filter((item): item is string => typeof item === "string").map((item) => `- ${item}`) : []),
-              ].filter(Boolean).join("\n")
-              input.update({
-                type: "progress",
-                stage: `${model.providerID}/${model.id} is writing the improved prompt`,
-                summary: typeof value.summary === "string" ? value.summary.slice(0, 2000) : undefined,
-                preview: preview.slice(0, 12_000),
-              })
-            }
-            // Validate in the engine after usage is captured, including failed responses.
-            return { text: await result.text, usage: await result.totalUsage, finishReason: await result.finishReason }
+            return { ...result, usage: result.totalUsage }
           }
           const result = yield* Effect.tryPromise({
             try: () => wait(() => capture.run(invoke), input.signal),
             catch: (err) => input.purpose === "enhance" ? transport(err, input.signal) : err,
           }).pipe(
+            Effect.ensuring(Effect.sync(() => controller.abort())),
             Effect.onExit((exit) => Exit.isFailure(exit)
               ? Effect.promise(() => capture?.finish({}, true).catch((err) => log.warn("failed preparation usage unavailable", { error: String(err) })) ?? Promise.resolve())
               : Effect.void),
           )
-          yield* Effect.promise(() => capture?.finish({ input: result.usage.inputTokens ?? 0, output: result.usage.outputTokens ?? 0, cached: result.usage.inputTokenDetails?.cacheReadTokens ?? 0, measured: true }) ?? Promise.resolve())
-          const measured = { input: result.usage.inputTokens ?? 0, output: result.usage.outputTokens ?? 0, cached: result.usage.inputTokenDetails?.cacheReadTokens ?? 0, milliseconds: Date.now() - started, model: `${model.providerID}/${model.id}`, measured: true }
+          const measured = { input: result.usage.inputTokens ?? 0, output: result.usage.outputTokens ?? 0, cached: result.usage.inputTokenDetails?.cacheReadTokens ?? 0, milliseconds: Date.now() - started, model: `${model.providerID}/${model.id}`, measured: result.usage.inputTokens != null && result.usage.outputTokens != null }
+          yield* Effect.promise(() => capture.finish(measured))
           if (result.finishReason === "length") throw new EnhancementError("The model response was cut off at its output limit. Your prompt was kept. Retry with a shorter request or choose a model with a larger output limit.", { ...failure("cutoff"), finish: "length", usage: measured })
           return { text: result.text, usage: measured, finish: result.finishReason }
         })),

@@ -145,9 +145,11 @@ test.each([false, true])("built-in OAuth captures the final HTTP hop (registered
 test("built-in OAuth cannot send registered evidence to an unreviewed final origin", async () => {
   await using f = await fixture()
   const adapter = await oauth(new URL("/responses", f.other.url).href)
-  await expect(f.trace.run(() => transport(adapter.fetch)("https://api.openai.com/v1/responses", {
+  const error = await f.trace.run(() => transport(adapter.fetch)("https://api.openai.com/v1/responses", {
     method: "POST", body: f.body,
-  }))).rejects.toThrow("outside")
+  })).catch((err: unknown) => err)
+  expect(error).toBeInstanceOf(Error)
+  expect(error instanceof Error && error.message).toContain("outside")
   expect(f.received).toEqual([])
   expect(f.leaked).toEqual([])
   expect((await f.storage.request(f.input.root, "", f.trace.id))?.attempts?.at(0)?.state).toBe("blocked")
@@ -156,9 +158,10 @@ test("built-in OAuth cannot send registered evidence to an unreviewed final orig
 test("built-in OAuth retains redirect rejection at the final native HTTP hop", async () => {
   await using f = await fixture()
   const adapter = await oauth(new URL("/redirect/307", f.server.url).href)
-  await expect(f.trace.run(() => transport(adapter.fetch)("https://api.openai.com/v1/responses", {
+  const error = await f.trace.run(() => transport(adapter.fetch)("https://api.openai.com/v1/responses", {
     method: "POST", body: f.body, redirect: "follow",
-  }))).rejects.toThrow()
+  })).catch((err: unknown) => err)
+  expect(error).toBeInstanceOf(Error)
   expect(f.received.map((item) => item.path)).toEqual(["/redirect/307"])
   expect(f.leaked).toEqual([])
 })

@@ -3,9 +3,9 @@ import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { Schema } from "effect"
-import { createKiloClient } from "@kilocode/sdk/v2"
 import { decode, Investigation, Prepared } from "@kilocode/forge"
 import { metadata } from "@kilocode/forge/handoff"
+import { backend } from "./fixture/forge-server"
 
 test("source backend preserves prepared provenance through coding, compaction and restart", async () => {
   const home = await realpath(await mkdtemp(path.join(tmpdir(), "forge-workshop-process-")))
@@ -51,40 +51,11 @@ test("source backend preserves prepared provenance through coding, compaction an
       ].map((item) => `data: ${JSON.stringify(item)}\n\n`).join("") + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } })
     },
   })
-  const processes: Bun.Subprocess[] = []
-  const drains: Promise<unknown>[] = []
+  const processes: Awaited<ReturnType<typeof backend>>[] = []
   async function launch() {
-    const ready = Promise.withResolvers<string>()
-    const proc = Bun.spawn([
-      ...(process.env.FORGE_WORKSHOP_BINARY ? [process.env.FORGE_WORKSHOP_BINARY] : [process.execPath, "run", "--conditions=node", path.resolve(import.meta.dir, "../../src/index.ts")]),
-      "serve", "--hostname", "127.0.0.1", "--port", "0",
-    ], {
-      cwd: root, stdout: "pipe", stderr: "pipe",
-      env: {
-        ...process.env, HOME: home, KILO_TEST_HOME: home,
-        XDG_DATA_HOME: `${home}/data`, XDG_STATE_HOME: `${home}/state`, XDG_CONFIG_HOME: `${home}/config`, XDG_CACHE_HOME: `${home}/cache`,
-        KILO_AUTH_CONTENT: "{}", KILO_DB: `${home}/kilo.db`, KILO_SERVER_PASSWORD: "workshop-fixture", KILO_SERVER_USERNAME: "kilo",
-        KILO_DISABLE_PROJECT_CONFIG: "1", KILO_DISABLE_MODELS_FETCH: "1", KILO_DISABLE_DEFAULT_PLUGINS: "1",
-        KILO_DISABLE_EXTERNAL_SKILLS: "1", KILO_DISABLE_CLAUDE_CODE: "1", KILO_DISABLE_AUTOUPDATE: "1", KILO_NO_DAEMON: "1", KILO_TELEMETRY_LEVEL: "off",
-        KILO_CONFIG_CONTENT: JSON.stringify({
-          model: "probe/test", small_model: "probe/test", enabled_providers: ["probe"], snapshot: false, formatter: false, lsp: false, plugin: [],
-          indexing: { enabled: false }, permission: { "*": "allow", bash: "deny", edit: "deny", write: "deny", task: "deny" },
-          provider: { probe: { npm: "@ai-sdk/openai-compatible", options: { baseURL: `${provider.url}v1`, apiKey: "fixture" }, models: { test: { name: "Local fixture", tool_call: true, limit: { context: 128000, output: 8000 } } } } },
-        }),
-      },
-    })
-    processes.push(proc)
-    let output = ""
-    for (const stream of [proc.stdout, proc.stderr]) drains.push((async () => {
-      for await (const chunk of stream) {
-        output = (output + new TextDecoder().decode(chunk)).slice(-20_000)
-        const url = output.match(/http:\/\/127\.0\.0\.1:\d+/)?.at(0)
-        if (url) ready.resolve(url)
-      }
-    })())
-    const timer = setTimeout(() => { proc.kill(); ready.reject(new Error(`Backend readiness deadline: ${output}`)) }, 30_000)
-    const url = await Promise.race([ready.promise, proc.exited.then((code) => { throw new Error(`Backend exited ${code}: ${output}`) })]).finally(() => clearTimeout(timer))
-    return { proc, client: createKiloClient({ baseUrl: url, directory: root, headers: { Authorization: `Basic ${Buffer.from("kilo:workshop-fixture").toString("base64")}` } }) }
+    const value = await backend(root, { home, endpoint: `${provider.url}v1`, binary: process.env.FORGE_WORKSHOP_BINARY })
+    processes.push(value)
+    return value
   }
   const opts = { throwOnError: true as const, get signal() { return AbortSignal.timeout(30_000) } }
   try {
@@ -117,9 +88,7 @@ test("source backend preserves prepared provenance through coding, compaction an
     expect(blocked).toBeTruthy()
     expect(calls.filter((kind) => kind === "coding")).toHaveLength(count)
   } finally {
-    for (const proc of processes) proc.kill()
-    await Promise.allSettled(processes.map((proc) => proc.exited))
-    await Promise.allSettled(drains)
+    await Promise.allSettled(processes.map((value) => value[Symbol.asyncDispose]()))
     await provider.stop(true)
     await rm(home, { recursive: true, force: true })
   }

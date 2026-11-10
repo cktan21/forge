@@ -10,6 +10,7 @@ import { opencodeSessionHeaders } from "@/kilocode/provider/opencode-session-hea
 import type { Usage } from "@kilocode/forge/schema"
 import { InstanceState } from "@/effect/instance-state"
 import * as Trace from "@/kilocode/forge/trace"
+import { complete, protocol } from "@/kilocode/forge/completion"
 
 const log = Log.create({ service: "enhance-prompt" })
 
@@ -29,8 +30,8 @@ export function clean(text: string) {
 
 /**
  * Lightweight prompt enhancement that mirrors the legacy singleCompletionHandler.
- * Calls generateText directly with a prompt-rewrite system instruction, no agent identity,
- * tools, or plugins. The user message is labeled as a draft so it stays rewrite input.
+ * Uses standalone generation, or bounded streaming for ChatGPT OAuth, without
+ * agent tools. The user message is labeled as a draft so it stays rewrite input.
  */
 export async function enhancePrompt(text: string, observe?: (usage: Usage) => void): Promise<string> {
   const started = Date.now()
@@ -43,7 +44,8 @@ export async function enhancePrompt(text: string, observe?: (usage: Usage) => vo
         const model = (yield* svc.getSmallModel(ref.providerID)) ?? (yield* svc.getModel(ref.providerID, ref.modelID))
         const language = yield* svc.getLanguage(model)
         const instance = yield* InstanceState.context
-        return { model, language, root: instance.directory }
+        const current = yield* svc.getProvider(model.providerID)
+        return { model, language, root: instance.directory, protocol: protocol(current?.options) }
       }),
     ),
   )
@@ -58,8 +60,8 @@ export async function enhancePrompt(text: string, observe?: (usage: Usage) => vo
   })
   if (observe && !capture)
     throw new Error("Prompt enhancement accounting capture is unavailable. No model request was made.")
-  const invoke = () =>
-    generateText({
+  const invoke = () => {
+    const options = {
       model: resolved.language,
       temperature: resolved.model.capabilities.temperature ? 0.7 : undefined,
       providerOptions: ProviderTransform.providerOptions(
@@ -72,7 +74,11 @@ export async function enhancePrompt(text: string, observe?: (usage: Usage) => vo
       // per call still satisfies the opencode API's "stable per-conversation ID" requirement.
       headers: opencodeSessionHeaders({ providerID: resolved.model.providerID, sessionID: randomUUID() }),
       messages,
-    })
+    }
+    if (resolved.protocol.adapter === "standard") return generateText(options)
+    return complete({ ...options, maxOutputTokens: Math.min(5000, resolved.model.limit.output) }, resolved.protocol)
+      .then((result) => ({ text: result.text, usage: result.totalUsage }))
+  }
   const result = await (capture ? capture.run(invoke) : invoke()).catch(async (err) => {
     await capture
       ?.finish({}, true)

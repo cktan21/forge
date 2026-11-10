@@ -42,8 +42,11 @@ export function transport(err: unknown, signal?: AbortSignal) {
     network: "The provider connection failed or was interrupted. Check connectivity before retrying explicitly.",
     unknown: "The model request failed before a valid task was returned. The cause was not recognized; retry explicitly.",
   }
+  const detail = (status === 400 || status === 404) && /\bmodel\b.{0,200}\b(?:not supported|not available|does not exist)\b/i.test(text)
+    ? "The selected model is not available through this provider or account. Choose another model explicitly; repeating the same request will not fix it."
+    : details[reason]
   return new EnhancementError(
-    `Enhancement provider failure${status ? ` (HTTP ${status})` : ""}: ${details[reason]} Your prompt and answers were kept.`,
+    `Enhancement provider failure${status ? ` (HTTP ${status})` : ""}: ${detail} Your prompt and answers were kept.`,
     { ...failure("transport"), reason, ...(status ? { status } : {}) },
   )
 }

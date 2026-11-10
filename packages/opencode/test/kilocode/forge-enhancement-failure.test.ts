@@ -16,6 +16,8 @@ test.each([
   { status: 413, message: "Too large", reason: "context-limit", visible: "context limit" },
   { status: 503, message: "Unavailable", reason: "unavailable", visible: "temporarily unavailable" },
   { status: 400, message: "Unrecognized problem", reason: "invalid-request", visible: "rejected the request parameters" },
+  { status: 400, message: "The 'gpt-5.4-mini' model is not supported when using Codex with a ChatGPT account.", reason: "invalid-request", visible: "not available through this provider or account" },
+  { status: 404, message: "The requested model does not exist.", reason: "invalid-request", visible: "Choose another model explicitly" },
 ])("provider HTTP $status maps to safe $reason diagnostics", (item) => {
   const err = new APICallError({
     message: `${item.message} PRIVATE_PROMPT_CANARY`,
