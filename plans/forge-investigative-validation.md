@@ -165,3 +165,31 @@ All 118 composer/dialog tests passed with 743 assertions, covering selection, cu
 Actual source Kilo was launched in Terminal window `10315` on the user-approved Nemotron free model. `/enhance improve the backend` (`f36f5432-fdda-4a2a-8988-426d396e3dd4`) reached its three-minute deadline after six completed model turns and six tools, with the seventh model call cancelled. A separate clarification-first request (`69e8e07d-706a-4356-bfb5-6911206dd333`) received HTTP 429 before any tool execution. No further retry or model switch was made.
 
 The final live picker interaction remains unverified because of those provider failures. Kilo was left open on the preserved clarification-first request and the rate-limit diagnostic. No answers, findings, writer request or coding prompt were submitted in these live checks; local render/SDK regressions verify the answer interaction and payload mechanics, not provider availability.
+
+## OpenAI OAuth Follow-Up (2026-11-09)
+
+The user authorized changing models and showed an investigation failure on `openai/gpt-5.6-sol`. A regression using the real built-in Codex OAuth adapter reproduced Forge's preflight rejection of its fetch function as unknown custom routing. The built-in adapter is now registered by exact function identity with credential-free routing metadata. Capture and reviewed-origin authorization occur at the final HTTP hop after OAuth URL rewriting. Unknown custom routers, protected custom transports, unreviewed origins and redirects remain rejected. Protected WebSocket requests do not silently fall back to HTTP.
+
+Investigation and the separate writer now use the OAuth streaming conventions: explicit instructions, `store: false`, optional function-tool schemas and no unsupported temperature or API output-cap parameter. Non-OAuth generation remains unchanged. Visible text, reasoning summaries and tool-input deltas are conservatively counted as UTF-8 bytes, and final reported output-token usage is checked. Hidden reasoning cannot be bounded before reporting; these checks and cancellation are not a provider-enforced billing ceiling. No automatic model switch, request retry or malformed-output repair was added.
+
+Repeated HTTP 400 responses from `gpt-5.4-mini` were separately identified as account/model unavailability by a harmless minimal request: the provider explicitly reported that this model is unsupported through the ChatGPT account. This does not establish that every intermediate rejection came from request formatting. A minimal `gpt-5.6-sol` probe succeeded with 28 output tokens. Safe diagnostics now distinguish recognized unavailable-model/account errors without exposing provider response bodies or private prompt content.
+
+Actual source Kilo was launched with `KILO_NO_DAEMON=1`, `KILO_DISABLE_AUTOUPDATE=true` and `--model openai/gpt-5.6-sol`. The first launch hit a local 30-second TUI worker-startup timeout before chat opened; a manual relaunch succeeded. No startup code was changed, and the timeout's cause was not established.
+
+The real command `/enhance Do not inspect files yet. Ask me whether to focus on reliability, performance, or test coverage.` completed as `needs_input` in run `9376bad3-41bb-404b-ae21-0d13fdc4690a`. It used one model turn, one valid native `forge_finish`, zero inspection tools, 7,136 ms of reported request time and 164 output tokens. The actual Terminal displayed the required question with selectable Reliability, Performance and Test coverage options, no selected answer and a custom-answer action.
+
+A subsequent run, `ab9adc96-786b-49f4-8603-41b517bf422d`, preserved the selected Reliability answer in the separate `answers` transcript. It completed another valid clarification in one model turn, zero inspection tools, 9,647 ms and 366 output tokens, asking permission to begin repository inspection. The window advanced during the selection check, so the submission is not attributed to the scripted keyboard action. Automation stopped to avoid interfering with concurrent interaction. The user explicitly chose "Leave it open"; Terminal window `11098` was left under user control on that follow-up.
+
+These live checks establish the actual OAuth investigation-to-clarification path and answer round-trip. They do not establish a live repository-read/replay loop, live writer quality, or manual custom-answer/Escape behavior. The latter interactions passed automated render/SDK regressions; no further live keystrokes were sent after the user's instruction. No writer, staging or coding submission was performed by this test.
+
+| Check | Result |
+|---|---|
+| OAuth route, egress, completion, safe failures and legacy OAuth integration | 64 passed, 387 assertions. Includes real adapter/SDK fixtures, streamed native calls and structured writer responses, output rejection, cancellation, account errors and no retry. |
+| Native investigation and final-hop guard rerun | 54 passed, 858 assertions after cleaning the new guard assertions. |
+| Source backend lifecycle | One passed, nine assertions; investigation, writer and handoff mechanics through the source process. |
+| TUI composer and dialogs | 118 passed, 743 assertions, including typed answers, Escape, cancellation and preserved clarification rounds. |
+| Types | CLI and TUI typechecks passed. |
+| Lint | The six completion/investigator/failure/fixture files passed with zero warnings or errors. The wider trace/egress run had zero errors and existing assertion warnings; two newly introduced assertion warnings were subsequently removed. |
+| Guards | Upstream worktree annotation check found no pending shared-file edits; Effect facade, compact-table and whitespace checks passed. |
+
+Concurrent legacy-enhancement and benchmark work was preserved. No commits, branch changes, dependency installations, credential changes or new provider registrations were performed by this follow-up. The earlier release and model-quality gates remain open.

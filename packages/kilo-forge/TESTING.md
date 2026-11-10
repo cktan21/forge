@@ -43,6 +43,8 @@ The new path is opt-in with `investigation: true` in `.kilo/forge.jsonc`. Routin
 ```sh
 # packages/kilo-forge
 bun test ./test/repository.test.ts ./test/investigation.test.ts ./test/writing.test.ts
+bun test ./test/investigation-reliability.test.ts ./test/investigation-events.test.ts
+bun test ./test/investigation-convergence.test.ts
 bun test ./test/catalog.test.ts ./test/engine.test.ts
 
 # packages/opencode
@@ -50,10 +52,17 @@ bun test ./test/kilocode/forge-investigation.test.ts ./test/kilocode/forge-sourc
 bun test ./test/kilocode/forge-investigation-process.test.ts
 
 # packages/tui
-bun test ./test/kilocode/forge-composer.test.tsx ./test/kilocode/forge-dialog.test.tsx
+bun test ./test/kilocode/forge-composer.test.tsx ./test/kilocode/forge-enhance-*.test.tsx ./test/kilocode/forge-dialog.test.tsx
+bun test ./test/kilocode/forge-workshop*.test.tsx
 ```
 
-The process fixture starts a current-source backend with isolated on-disk state and a local OpenAI-compatible response server. It checks native tool calling, explicit direction/writing, structured message admission, ordinary coding continuation after code changes, compaction, restart, and later exclusion enforcement. `FORGE_WORKSHOP_BINARY=/absolute/path/to/kilo` runs the same fixture against a built CLI. This is a mechanics and provenance test, not evidence that a real model diagnoses a task correctly.
+The process fixture starts a current-source backend with isolated on-disk state and a local OpenAI-compatible response server. It checks native tool calling, explicit direction/writing, structured message admission, ordinary coding continuation after code changes, compaction, restart, and later exclusion enforcement. `forge-workshop-server.test.tsx` connects the real terminal components to that backend and verifies a held initial request, elapsed progress, mixed malformed calls, a failed conclusion, and explicit conclusion-only recovery. `FORGE_WORKSHOP_BINARY=/absolute/path/to/kilo` runs either workflow against a built CLI. These are mechanics and provenance tests, not evidence that a real model diagnoses a task correctly.
+
+Terminal cases share `forge-composer-fixture.tsx` and are grouped by legacy enhancement, clarification, investigative workflow, and activity. Native HTTP cases use named scenarios in `packages/opencode/test/kilocode/fixture/forge-investigation.ts`. Fixtures replace provider responses, not evidence validation or tool execution.
+
+Reliability tests cover retained evidence, same-version replay deduplication, direct-evidence priority, malformed sibling calls, explicit recovery, cancellation classification, and in-memory heartbeat behavior. Activity coalescing is measured with a synthetic burst; it is not a live-provider latency benchmark. Keep SQLite fixture databases outside their watched repository directories so history writes cannot trigger recursive inventory rebuilds.
+
+Convergence tests cover stage-aware preparation instructions, repeated-evidence reminders, early conclusions, continued inspection beyond three turns, and a clarification-to-diagnostic-to-writer path in three model calls. These use local provider fixtures: they verify orchestration and transmitted instructions, not that a live model will reliably converge in that many calls. Measure that separately with authorized live runs; keep clarification burden and writer calls in the total.
 
 `repository` covers bounded literal discovery and reads, escapes, ignore rules, symlinks, byte limits, and source-instruction text. `investigation` covers adaptive queries, findings support, empty results, clarification, deadlines, cancellation, duplicate attempts, and recovery. `writing` covers chosen-only scope, requirement/counterevidence coverage, edits, freshness, historical coding context, and purge. `catalog` covers cold/delta equivalence and package-local dependency resolution.
 
